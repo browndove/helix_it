@@ -20,11 +20,6 @@ type StaffMember = {
 
 type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status';
 
-const initialStaff: StaffMember[] = [
-    { id: '1', first_name: 'Ama', last_name: 'Mensah', email: 'a.mensah@accramedical.com.gh', job_title: 'Senior Resident', dept: 'Cardiology', status: 'active', access: 'Administrator', employee_id: 'AMC-0012', patient_access: true },
-    { id: '2', first_name: 'Kwame', last_name: 'Asante', email: 'k.asante@accramedical.com.gh', job_title: 'Attending Physician', dept: 'Internal Med', status: 'active', access: 'Supervisor', employee_id: 'AMC-0045', patient_access: true },
-    { id: '3', first_name: 'Abena', last_name: 'Osei', email: 'a.osei@accramedical.com.gh', job_title: 'Head Nurse', dept: 'ICU', status: 'active', access: 'Staff', employee_id: 'AMC-0078', patient_access: true },
-];
 
 function parseStaffList(raw: unknown): StaffMember[] {
     const list = Array.isArray(raw)
@@ -77,8 +72,9 @@ const importHistory = [
 ];
 
 export default function StaffDirectoryManagement() {
-    const [staff, setStaff] = useState(initialStaff);
+    const [staff, setStaff] = useState<StaffMember[]>([]);
     const [loading, setLoading] = useState(true);
+    const [fetchError, setFetchError] = useState(false);
     const [search, setSearch] = useState('');
     const [toast, setToast] = useState<string | null>(null);
     const [deptFilter, setDeptFilter] = useState('all');
@@ -107,15 +103,18 @@ export default function StaffDirectoryManagement() {
     const departments = useMemo(() => ['all', ...Array.from(new Set(staff.map(s => s.dept)))], [staff]);
 
     const fetchStaff = useCallback(async () => {
+        setFetchError(false);
         try {
             const res = await fetch('/api/proxy/staff?page_size=100&page_id=1');
             if (res.ok) {
                 const data = await res.json();
                 const parsed = parseStaffList(data);
-                if (parsed.length > 0) setStaff(parsed);
+                setStaff(parsed);
+            } else {
+                setFetchError(true);
             }
         } catch {
-            showToast('Failed to load staff from server');
+            setFetchError(true);
         }
         setLoading(false);
     }, []);
@@ -194,17 +193,48 @@ export default function StaffDirectoryManagement() {
         }
     };
 
-    const handleRemove = (id: string) => {
+    const handleRemove = async (id: string) => {
         const member = staff.find(s => s.id === id);
         setStaff(prev => prev.filter(s => s.id !== id));
         if (selected?.id === id) setSelected(null);
         showToast(`${member?.first_name} ${member?.last_name} removed`);
+        try {
+            await fetch(`/api/proxy/staff/${id}`, { method: 'DELETE' });
+        } catch { /* optimistic — already removed locally */ }
     };
 
-    const toggleStatus = (id: string) => {
-        setStaff(prev => prev.map(s => s.id === id ? { ...s, status: s.status === 'active' ? 'disabled' : 'active' } : s));
+    const toggleStatus = async (id: string) => {
         const member = staff.find(s => s.id === id);
-        showToast(member?.status === 'active' ? `${member?.first_name} ${member?.last_name} disabled` : `${member?.first_name} ${member?.last_name} enabled`);
+        const newStatus = member?.status === 'active' ? 'disabled' : 'active';
+        setStaff(prev => prev.map(s => s.id === id ? { ...s, status: newStatus } : s));
+        showToast(newStatus === 'disabled' ? `${member?.first_name} ${member?.last_name} disabled` : `${member?.first_name} ${member?.last_name} enabled`);
+        try {
+            await fetch(`/api/proxy/staff/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: newStatus }),
+            });
+        } catch { /* optimistic — already updated locally */ }
+    };
+
+    const togglePatientAccess = async (id: string, currentAccess: boolean) => {
+        const newVal = !currentAccess;
+        const member = staff.find(s => s.id === id);
+        setStaff(prev => prev.map(s => s.id === id ? { ...s, patient_access: newVal } : s));
+        setSelected(prev => prev && prev.id === id ? { ...prev, patient_access: newVal } : prev);
+        showToast(`Patient access ${newVal ? 'granted' : 'revoked'} for ${member?.first_name} ${member?.last_name}`);
+        try {
+            await fetch(`/api/proxy/staff/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ patient_access: newVal }),
+            });
+        } catch {
+            // Rollback on failure
+            setStaff(prev => prev.map(s => s.id === id ? { ...s, patient_access: currentAccess } : s));
+            setSelected(prev => prev && prev.id === id ? { ...prev, patient_access: currentAccess } : prev);
+            showToast('Failed to update patient access');
+        }
     };
 
     return (
@@ -322,6 +352,28 @@ export default function StaffDirectoryManagement() {
                                         </tr>
                                     </thead>
                                     <tbody>
+                                        {loading && filtered.length === 0 && (
+                                            <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>hourglass_empty</span>
+                                                Loading staff from server...
+                                            </td></tr>
+                                        )}
+                                        {!loading && fetchError && filtered.length === 0 && (
+                                            <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, color: 'var(--critical)' }}>cloud_off</span>
+                                                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Could not load staff</div>
+                                                <div style={{ marginBottom: 12 }}>The server is unreachable. Check your connection and try again.</div>
+                                                <button className="btn btn-primary btn-sm" onClick={() => { setLoading(true); fetchStaff(); }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>refresh</span> Retry
+                                                </button>
+                                            </td></tr>
+                                        )}
+                                        {!loading && !fetchError && filtered.length === 0 && (
+                                            <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>person_off</span>
+                                                {search || deptFilter !== 'all' || statusFilter !== 'all' ? 'No staff match your filters.' : 'No staff members yet. Add staff above to get started.'}
+                                            </td></tr>
+                                        )}
                                         {filtered.map(s => {
                                             const st = statusColors[s.status] || statusColors.active;
                                             return (
@@ -393,12 +445,7 @@ export default function StaffDirectoryManagement() {
                                                 <div style={{ fontSize: 12, fontWeight: 600, color: selected.patient_access ? '#2d8a4e' : '#888' }}>Patient Records Access</div>
                                                 <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 1 }}>{selected.patient_access ? 'Can view and manage patient records.' : 'No access to patient records.'}</div>
                                             </div>
-                                            <button type="button" onClick={() => {
-                                                const newVal = !selected.patient_access;
-                                                setStaff(prev => prev.map(s => s.id === selected.id ? { ...s, patient_access: newVal } : s));
-                                                setSelected(prev => prev ? { ...prev, patient_access: newVal } : null);
-                                                showToast(`Patient access ${newVal ? 'granted' : 'revoked'} for ${selected.first_name} ${selected.last_name}`);
-                                            }}
+                                            <button type="button" onClick={() => togglePatientAccess(selected.id, selected.patient_access)}
                                                 style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 14, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.03em', cursor: 'pointer', transition: 'all 0.15s', border: `1px solid ${selected.patient_access ? 'rgba(34,139,34,0.25)' : 'rgba(120,120,120,0.2)'}`, background: selected.patient_access ? 'rgba(34,139,34,0.12)' : 'rgba(120,120,120,0.1)', color: selected.patient_access ? '#2d8a4e' : '#888' }}
                                                 onMouseEnter={e => { e.currentTarget.style.opacity = '0.8'; }}
                                                 onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
