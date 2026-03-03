@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
@@ -16,30 +16,61 @@ type LogEntry = {
     details: string;
     timestamp: string;
     ip: string;
+    actionRaw: string;
+    entityTypeRaw: string;
+    userId: string;
 };
 
-const mockLogs: LogEntry[] = [
-    { id: '1', action: 'Staff Added', category: 'Staff', firstName: 'Kwame', lastName: 'Asante', target: 'Ama Serwaa', details: 'Added new staff member to Emergency Department', timestamp: '2026-02-27T08:20:00Z', ip: '192.168.1.10' },
-    { id: '2', action: 'Role Created', category: 'Roles', firstName: 'Kwame', lastName: 'Asante', target: 'ICU Charge Nurse', details: 'Created role from ICU Critical template', timestamp: '2026-02-26T10:45:00Z', ip: '192.168.1.10' },
-    { id: '3', action: 'Staff Removed', category: 'Staff', firstName: 'Ama', lastName: 'Mensah', target: 'Kofi Darko', details: 'Removed staff member from Radiology', timestamp: '2026-02-25T09:30:00Z', ip: '192.168.1.22' },
-    { id: '4', action: 'Escalation Updated', category: 'Escalation', firstName: 'Kwame', lastName: 'Asante', target: 'Emergency Critical Chain', details: 'Changed escalation delay from 5 min to 3 min', timestamp: '2026-02-24T16:10:00Z', ip: '192.168.1.10' },
-    { id: '5', action: 'Role Edited', category: 'Roles', firstName: 'Ama', lastName: 'Mensah', target: 'Charge Nurse', details: 'Changed priority from Standard to Critical', timestamp: '2026-02-22T14:22:00Z', ip: '192.168.1.22' },
-    { id: '6', action: 'Department Added', category: 'Hospital', firstName: 'Kwame', lastName: 'Asante', target: 'Oncology', details: 'Added new department Oncology', timestamp: '2026-02-20T11:05:00Z', ip: '192.168.1.10' },
-    { id: '7', action: 'Staff Added', category: 'Staff', firstName: 'Kofi', lastName: 'Boateng', target: 'Yaa Amponsah', details: 'Added new staff member to ICU', timestamp: '2026-02-18T09:48:00Z', ip: '192.168.1.35' },
-    { id: '8', action: 'Admin Invited', category: 'Admin', firstName: 'Kwame', lastName: 'Asante', target: 'Efua Darko', details: 'Invited as Viewer role', timestamp: '2026-02-15T15:30:00Z', ip: '192.168.1.10' },
-    { id: '9', action: 'Role Created', category: 'Roles', firstName: 'Ama', lastName: 'Mensah', target: 'Safety Officer', details: 'Created role from Safety Threat template', timestamp: '2026-02-10T13:15:00Z', ip: '192.168.1.22' },
-    { id: '10', action: 'Hospital Profile Updated', category: 'Hospital', firstName: 'Kwame', lastName: 'Asante', target: 'Accra Medical Center', details: 'Updated hospital phone number and email', timestamp: '2026-02-05T10:00:00Z', ip: '192.168.1.10' },
-    { id: '11', action: 'Staff Role Changed', category: 'Staff', firstName: 'Kwame', lastName: 'Asante', target: 'Ama Serwaa', details: 'Changed role from Ward Nurse to Charge Nurse', timestamp: '2026-02-01T16:45:00Z', ip: '192.168.1.10' },
-    { id: '12', action: 'Escalation Created', category: 'Escalation', firstName: 'Ama', lastName: 'Mensah', target: 'ICU Critical Chain', details: 'Created new escalation chain with 4 levels', timestamp: '2026-01-28T14:20:00Z', ip: '192.168.1.22' },
-    { id: '13', action: 'Ward Added', category: 'Hospital', firstName: 'Kofi', lastName: 'Boateng', target: 'Ward C - Oncology', details: 'Added ward to Oncology department', timestamp: '2026-01-22T11:10:00Z', ip: '192.168.1.35' },
-    { id: '14', action: 'Login', category: 'Auth', firstName: 'Kwame', lastName: 'Asante', target: 'System', details: 'Successful login from Chrome on macOS', timestamp: '2026-01-15T08:00:00Z', ip: '192.168.1.10' },
-    { id: '15', action: 'Staff Added', category: 'Staff', firstName: 'Ama', lastName: 'Mensah', target: 'Kofi Mensah', details: 'Added new staff member to Surgery', timestamp: '2026-01-08T15:30:00Z', ip: '192.168.1.22' },
-    { id: '16', action: 'Login Failed', category: 'Auth', firstName: 'Unknown', lastName: '', target: 'System', details: 'Failed login attempt with email admin@accra.com', timestamp: '2025-12-28T03:15:00Z', ip: '41.215.88.12' },
-    { id: '17', action: 'Role Deleted', category: 'Roles', firstName: 'Kwame', lastName: 'Asante', target: 'Temp Nurse', details: 'Deleted unused temporary role', timestamp: '2025-12-15T17:00:00Z', ip: '192.168.1.10' },
-    { id: '18', action: 'Staff Deactivated', category: 'Staff', firstName: 'Ama', lastName: 'Mensah', target: 'James Owusu', details: 'Deactivated staff account', timestamp: '2025-12-01T14:30:00Z', ip: '192.168.1.22' },
-];
+const entityTypes = ['All', 'staff', 'patient', 'role', 'department', 'facility'];
+const actionTypes = ['All', 'create', 'update', 'delete', 'sign_in', 'sign_out'];
 
-const categories = ['All', 'Staff', 'Roles', 'Escalation', 'Hospital', 'Admin', 'Auth'];
+function prettify(value: string): string {
+    return value
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function parseAuditPayload(raw: unknown): { logs: LogEntry[]; total: number } {
+    const container = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null;
+    const list = Array.isArray(raw)
+        ? raw
+        : (container?.items || container?.data || container?.logs);
+
+    const entries = Array.isArray(list) ? list : [];
+    const logs = entries.map((entry: unknown, idx): LogEntry => {
+        const rec = (entry && typeof entry === 'object') ? entry as Record<string, unknown> : {};
+        const actor = (rec.actor && typeof rec.actor === 'object')
+            ? rec.actor as Record<string, unknown>
+            : ((rec.user && typeof rec.user === 'object') ? rec.user as Record<string, unknown> : {});
+        const actionRaw = String(rec.action || 'update');
+        const entityRaw = String(rec.entity_type || 'system');
+        const firstName = String(rec.first_name || actor.first_name || 'System');
+        const lastName = String(rec.last_name || actor.last_name || '');
+        const ts = String(rec.timestamp || rec.created_at || new Date().toISOString());
+        const target = String(rec.target_name || rec.entity_name || rec.entity_id || entityRaw);
+        const details = String(rec.details || rec.description || rec.message || '');
+        const ip = String(rec.ip || rec.ip_address || '-');
+        const userId = String(rec.user_id || actor.id || '');
+
+        return {
+            id: String(rec.id || `log-${idx}-${ts}`),
+            action: prettify(actionRaw),
+            category: prettify(entityRaw),
+            firstName,
+            lastName,
+            target,
+            details,
+            timestamp: ts,
+            ip,
+            actionRaw,
+            entityTypeRaw: entityRaw,
+            userId,
+        };
+    });
+
+    const total = Number(container?.total ?? container?.count ?? logs.length);
+    return { logs, total };
+}
 
 
 function formatTime(ts: string): string {
@@ -66,13 +97,52 @@ type SortField = 'time' | 'actor' | 'action';
 type SortDir = 'asc' | 'desc';
 
 export default function AuditLogPage() {
+    const [logs, setLogs] = useState<LogEntry[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [totalCount, setTotalCount] = useState(0);
+    const [pageId, setPageId] = useState(1);
+    const [pageSize, setPageSize] = useState(50);
     const [search, setSearch] = useState('');
-    const [categoryFilter, setCategoryFilter] = useState('All');
+    const [entityTypeFilter, setEntityTypeFilter] = useState('All');
+    const [actionFilter, setActionFilter] = useState('All');
+    const [userIdFilter, setUserIdFilter] = useState('');
     const [sortField, setSortField] = useState<SortField>('time');
     const [sortDir, setSortDir] = useState<SortDir>('desc');
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
+
+    const fetchLogs = useCallback(async () => {
+        setLoading(true);
+        try {
+            const params = new URLSearchParams({
+                page_size: String(pageSize),
+                page_id: String(pageId),
+            });
+            if (userIdFilter.trim()) params.set('user_id', userIdFilter.trim());
+            if (entityTypeFilter !== 'All') params.set('entity_type', entityTypeFilter);
+            if (actionFilter !== 'All') params.set('action', actionFilter);
+
+            const res = await fetch(`/api/proxy/audit-logs?${params.toString()}`);
+            if (!res.ok) {
+                setLogs([]);
+                setTotalCount(0);
+                return;
+            }
+            const data = await res.json();
+            const parsed = parseAuditPayload(data);
+            setLogs(parsed.logs);
+            setTotalCount(parsed.total);
+        } catch {
+            setLogs([]);
+            setTotalCount(0);
+        }
+        setLoading(false);
+    }, [pageSize, pageId, userIdFilter, entityTypeFilter, actionFilter]);
+
+    useEffect(() => { fetchLogs(); }, [fetchLogs]);
+
+    useEffect(() => { setPageId(1); }, [userIdFilter, entityTypeFilter, actionFilter, pageSize]);
 
     const handleSort = (field: SortField) => {
         if (sortField === field) {
@@ -84,25 +154,21 @@ export default function AuditLogPage() {
     };
 
     const filtered = useMemo(() => {
-        let logs = [...mockLogs];
-
-        if (categoryFilter !== 'All') {
-            logs = logs.filter(l => l.category === categoryFilter);
-        }
+        let localLogs = [...logs];
 
         if (dateFrom) {
             const from = new Date(dateFrom);
-            logs = logs.filter(l => new Date(l.timestamp) >= from);
+            localLogs = localLogs.filter(l => new Date(l.timestamp) >= from);
         }
         if (dateTo) {
             const to = new Date(dateTo);
             to.setHours(23, 59, 59, 999);
-            logs = logs.filter(l => new Date(l.timestamp) <= to);
+            localLogs = localLogs.filter(l => new Date(l.timestamp) <= to);
         }
 
         if (search.trim()) {
             const q = search.toLowerCase();
-            logs = logs.filter(l =>
+            localLogs = localLogs.filter(l =>
                 l.firstName.toLowerCase().includes(q) ||
                 l.lastName.toLowerCase().includes(q) ||
                 `${l.firstName} ${l.lastName}`.toLowerCase().includes(q) ||
@@ -112,7 +178,7 @@ export default function AuditLogPage() {
             );
         }
 
-        logs.sort((a, b) => {
+        localLogs.sort((a, b) => {
             let cmp = 0;
             if (sortField === 'time') {
                 cmp = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
@@ -124,8 +190,8 @@ export default function AuditLogPage() {
             return sortDir === 'asc' ? cmp : -cmp;
         });
 
-        return logs;
-    }, [search, categoryFilter, sortField, sortDir, dateFrom, dateTo]);
+        return localLogs;
+    }, [logs, search, sortField, sortDir, dateFrom, dateTo]);
 
     const SortIcon = ({ field }: { field: SortField }) => (
         <span className="material-icons-round" style={{
@@ -158,24 +224,42 @@ export default function AuditLogPage() {
                         </div>
 
                         <div style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', padding: 3 }}>
-                            {categories.map(cat => (
+                            {entityTypes.map(cat => (
                                 <button
                                     key={cat}
-                                    onClick={() => setCategoryFilter(cat)}
+                                    onClick={() => setEntityTypeFilter(cat)}
                                     style={{
                                         padding: '5px 12px', borderRadius: 'var(--radius-sm)',
-                                        fontSize: 11, fontWeight: categoryFilter === cat ? 600 : 500,
-                                        color: categoryFilter === cat ? 'var(--helix-primary)' : 'var(--text-secondary)',
-                                        background: categoryFilter === cat ? '#fff' : 'transparent',
-                                        border: categoryFilter === cat ? '1px solid var(--border-default)' : '1px solid transparent',
-                                        boxShadow: categoryFilter === cat ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                                        fontSize: 11, fontWeight: entityTypeFilter === cat ? 600 : 500,
+                                        color: entityTypeFilter === cat ? 'var(--helix-primary)' : 'var(--text-secondary)',
+                                        background: entityTypeFilter === cat ? '#fff' : 'transparent',
+                                        border: entityTypeFilter === cat ? '1px solid var(--border-default)' : '1px solid transparent',
+                                        boxShadow: entityTypeFilter === cat ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
                                         cursor: 'pointer', transition: 'all 0.15s',
                                     }}
                                 >
-                                    {cat}
+                                    {cat === 'All' ? 'All' : prettify(cat)}
                                 </button>
                             ))}
                         </div>
+
+                        <select className="input" value={actionFilter} onChange={e => setActionFilter(e.target.value)} style={{ fontSize: 12, height: 36, minWidth: 140 }}>
+                            {actionTypes.map(a => <option key={a} value={a}>{a === 'All' ? 'All Actions' : prettify(a)}</option>)}
+                        </select>
+
+                        <input
+                            className="input"
+                            placeholder="User ID"
+                            value={userIdFilter}
+                            onChange={e => setUserIdFilter(e.target.value)}
+                            style={{ fontSize: 12, height: 36, width: 160 }}
+                        />
+
+                        <select className="input" value={String(pageSize)} onChange={e => setPageSize(Number(e.target.value))} style={{ fontSize: 12, height: 36, width: 110 }}>
+                            <option value="20">20 / page</option>
+                            <option value="50">50 / page</option>
+                            <option value="100">100 / page</option>
+                        </select>
 
                         <CalendarRangePicker
                             from={dateFrom}
@@ -184,7 +268,7 @@ export default function AuditLogPage() {
                         />
 
                         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                            {filtered.length} {filtered.length === 1 ? 'entry' : 'entries'}
+                            {loading ? 'Loading...' : `${filtered.length} visible · ${totalCount} total`}
                         </div>
                     </div>
 
@@ -269,6 +353,16 @@ export default function AuditLogPage() {
                                 )}
                             </tbody>
                         </table>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+                        <button className="btn btn-secondary btn-xs" onClick={() => setPageId(p => Math.max(p - 1, 1))} disabled={pageId <= 1}>
+                            Previous
+                        </button>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', alignSelf: 'center' }}>Page {pageId}</div>
+                        <button className="btn btn-secondary btn-xs" onClick={() => setPageId(p => p + 1)} disabled={totalCount > 0 && pageId * pageSize >= totalCount}>
+                            Next
+                        </button>
                     </div>
                 </main>
             </div>

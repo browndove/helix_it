@@ -10,6 +10,26 @@ type WardItem = { id: string; name: string };
 type Department = { id: string; name: string; floors: FloorItem[]; wards: WardItem[] };
 type Hospital = { id: string; name: string; address: string; phone: string; email: string; license_type: string; license_expires_at: string; max_users: number };
 
+const DUMMY_FLOORS: FloorItem[] = [
+    { id: 'dummy-floor-ground', name: 'Ground Floor' },
+    { id: 'dummy-floor-first', name: 'First Floor' },
+];
+
+const DUMMY_WARDS: WardItem[] = [
+    { id: 'dummy-ward-a', name: 'Ward A' },
+    { id: 'dummy-ward-b', name: 'Ward B' },
+];
+
+function normalizeDepartment(raw: Partial<Department>): Department {
+    return {
+        id: raw.id || '',
+        name: raw.name || 'Unnamed Department',
+        // Temporary fallback until backend guarantees nested collections.
+        floors: Array.isArray(raw.floors) ? raw.floors : DUMMY_FLOORS,
+        wards: Array.isArray(raw.wards) ? raw.wards : DUMMY_WARDS,
+    };
+}
+
 export default function DashboardPage() {
     const [hospital, setHospital] = useState<Hospital | null>(null);
     const [hospitalName, setHospitalName] = useState('');
@@ -30,10 +50,9 @@ export default function DashboardPage() {
 
     const fetchData = useCallback(async () => {
         try {
-            const [hRes, dRes] = await Promise.all([
-                fetch('/api/hospital'),
-                fetch('/api/departments'),
-            ]);
+            // Fetch hospital/facility first
+            const hRes = await fetch('/api/proxy/hospital');
+            let facilityId = '';
             if (hRes.ok) {
                 const h = await hRes.json();
                 setHospital(h);
@@ -41,10 +60,16 @@ export default function DashboardPage() {
                 setHospitalAddress(h.address || '');
                 setHospitalPhone(h.phone || '');
                 setHospitalEmail(h.email || '');
+                facilityId = h.id || '';
             }
+            // Fetch departments scoped to this facility
+            const deptUrl = facilityId
+                ? `/api/proxy/departments?facility_id=${facilityId}`
+                : '/api/proxy/departments';
+            const dRes = await fetch(deptUrl);
             if (dRes.ok) {
                 const d = await dRes.json();
-                setDepartments(d);
+                setDepartments(Array.isArray(d) ? d.map(normalizeDepartment) : []);
             }
         } catch { showToast('Failed to load data'); }
         setLoading(false);
@@ -61,7 +86,7 @@ export default function DashboardPage() {
     const saveProfile = async () => {
         setSaving(true);
         try {
-            const res = await fetch('/api/hospital', {
+            const res = await fetch('/api/proxy/hospital', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: hospitalName, address: hospitalAddress, phone: hospitalPhone, email: hospitalEmail }),
@@ -75,14 +100,18 @@ export default function DashboardPage() {
     const addDepartment = async () => {
         if (!newDeptName.trim()) return;
         try {
-            const res = await fetch('/api/departments', {
+            const res = await fetch('/api/proxy/departments', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newDeptName.trim() }),
+                body: JSON.stringify({
+                    name: newDeptName.trim(),
+                    description: '',
+                    facility_id: hospital?.id || '',
+                }),
             });
             if (res.ok) {
                 const dept = await res.json();
-                setDepartments(prev => [...prev, dept]);
+                setDepartments(prev => [...prev, normalizeDepartment(dept)]);
                 showToast(`${newDeptName} added`);
                 setNewDeptName('');
                 setShowAddDept(false);
@@ -93,7 +122,7 @@ export default function DashboardPage() {
     const removeDepartment = async (id: string) => {
         const dept = departments.find(d => d.id === id);
         try {
-            const res = await fetch(`/api/departments/${id}`, { method: 'DELETE' });
+            const res = await fetch(`/api/proxy/departments/${id}`, { method: 'DELETE' });
             if (res.ok) {
                 setDepartments(prev => prev.filter(d => d.id !== id));
                 showToast(`${dept?.name} removed`);
@@ -105,14 +134,14 @@ export default function DashboardPage() {
     const addWard = async (deptId: string) => {
         if (!newWard.trim()) return;
         try {
-            const res = await fetch(`/api/departments/${deptId}/wards`, {
+            const res = await fetch(`/api/proxy/departments/${deptId}/wards`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: newWard.trim() }),
             });
             if (res.ok) {
                 const ward = await res.json();
-                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, wards: [...d.wards, ward] } : d));
+                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, wards: [...(d.wards || []), ward] } : d));
                 showToast(`Ward "${newWard}" added`);
                 setNewWard('');
             }
@@ -121,9 +150,9 @@ export default function DashboardPage() {
 
     const removeWard = async (deptId: string, wardId: string) => {
         try {
-            const res = await fetch(`/api/departments/${deptId}/wards/${wardId}`, { method: 'DELETE' });
+            const res = await fetch(`/api/proxy/departments/${deptId}/wards/${wardId}`, { method: 'DELETE' });
             if (res.ok) {
-                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, wards: d.wards.filter(w => w.id !== wardId) } : d));
+                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, wards: (d.wards || []).filter(w => w.id !== wardId) } : d));
             }
         } catch { showToast('Failed to remove ward'); }
     };
@@ -131,14 +160,14 @@ export default function DashboardPage() {
     const addFloor = async (deptId: string) => {
         if (!newFloor.trim()) return;
         try {
-            const res = await fetch(`/api/departments/${deptId}/floors`, {
+            const res = await fetch(`/api/proxy/departments/${deptId}/floors`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: newFloor.trim() }),
             });
             if (res.ok) {
                 const floor = await res.json();
-                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, floors: [...d.floors, floor] } : d));
+                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, floors: [...(d.floors || []), floor] } : d));
                 showToast(`Floor "${newFloor}" added`);
                 setNewFloor('');
             }
@@ -147,9 +176,9 @@ export default function DashboardPage() {
 
     const removeFloor = async (deptId: string, floorId: string) => {
         try {
-            const res = await fetch(`/api/departments/${deptId}/floors/${floorId}`, { method: 'DELETE' });
+            const res = await fetch(`/api/proxy/departments/${deptId}/floors/${floorId}`, { method: 'DELETE' });
             if (res.ok) {
-                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, floors: d.floors.filter(f => f.id !== floorId) } : d));
+                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, floors: (d.floors || []).filter(f => f.id !== floorId) } : d));
             }
         } catch { showToast('Failed to remove floor'); }
     };
@@ -407,7 +436,7 @@ export default function DashboardPage() {
                                                 <span className="material-icons-round" style={{ fontSize: 16, color: editingDept === d.id ? 'var(--helix-primary)' : 'var(--text-muted)' }}>domain</span>
                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                     <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</div>
-                                                    <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{d.floors.length} floors · {d.wards.length} wards</div>
+                                                    <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{(d.floors || []).length} floors · {(d.wards || []).length} wards</div>
                                                 </div>
                                             </div>
                                         ))}

@@ -22,6 +22,11 @@ type Role = {
     escalation_levels: EscalationLevel[];
 };
 
+function normalizeRoleForUi<T extends Role>(role: T): T {
+    const priority = role.mandatory ? 'Critical' : 'Standard';
+    return { ...role, priority } as T;
+}
+
 type ChainGroup = {
     key: string;
     chainName: string;
@@ -59,6 +64,28 @@ const levelColor = (i: number) => {
     return '#c26b6b';
 };
 
+function extractDepartmentNames(raw: unknown): string[] {
+    const list = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object'
+            ? ((raw as { items?: unknown; data?: unknown; departments?: unknown }).items
+                || (raw as { items?: unknown; data?: unknown; departments?: unknown }).data
+                || (raw as { items?: unknown; data?: unknown; departments?: unknown }).departments)
+            : []);
+
+    if (!Array.isArray(list)) return [];
+
+    const names = list
+        .map((d: unknown) => {
+            if (!d || typeof d !== 'object') return '';
+            const rec = d as { name?: string; department_name?: string };
+            return (rec.name || rec.department_name || '').trim();
+        })
+        .filter(Boolean);
+
+    return Array.from(new Set(names));
+}
+
 export default function EscalationAlertSettings() {
     const [roles, setRoles] = useState<Role[]>([]);
     const [departments, setDepartments] = useState<string[]>([]);
@@ -94,19 +121,19 @@ export default function EscalationAlertSettings() {
     const fetchData = useCallback(async () => {
         try {
             const [rolesRes, deptsRes] = await Promise.all([
-                fetch('/api/roles'),
-                fetch('/api/departments'),
+                fetch('/api/proxy/roles'),
+                fetch('/api/proxy/departments'),
             ]);
             if (rolesRes.ok) {
                 const data = await rolesRes.json();
-                setRoles(data.map((r: Role) => ({
+                setRoles(data.map((r: Role) => normalizeRoleForUi({
                     ...r,
                     escalation_levels: r.escalation_levels?.length ? r.escalation_levels : [],
                 })));
             }
             if (deptsRes.ok) {
                 const depts = await deptsRes.json();
-                setDepartments(depts.map((d: { name: string }) => d.name));
+                setDepartments(extractDepartmentNames(depts));
             }
         } catch { showToast('Failed to load data'); }
         setLoading(false);
@@ -175,7 +202,7 @@ export default function EscalationAlertSettings() {
     const handleCreate = async () => {
         if (!newName.trim()) return;
         try {
-            const res = await fetch('/api/roles', {
+            const res = await fetch('/api/proxy/roles', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -189,7 +216,7 @@ export default function EscalationAlertSettings() {
             });
             if (res.ok) {
                 const role = await res.json();
-                setRoles(prev => [...prev, { ...role, escalation_levels: role.escalation_levels || newLevels }]);
+                setRoles(prev => [...prev, normalizeRoleForUi({ ...role, escalation_levels: role.escalation_levels || newLevels })]);
                 showToast(`"${newName}" created`);
                 resetCreate();
             }
@@ -208,7 +235,7 @@ export default function EscalationAlertSettings() {
         if (!editRole || !editName.trim()) return;
         setEditSaving(true);
         try {
-            const res = await fetch(`/api/roles/${editRole.id}`, {
+            const res = await fetch(`/api/proxy/roles/${editRole.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -226,7 +253,7 @@ export default function EscalationAlertSettings() {
             if (res.ok) {
                 const updated = await res.json();
                 setRoles(prev => prev.map(r => r.id === editRole.id ? {
-                    ...r, ...updated,
+                    ...normalizeRoleForUi({ ...r, ...updated }),
                     escalation_levels: updated.escalation_levels?.length ? updated.escalation_levels : editLevels,
                 } : r));
                 showToast(`"${editName}" updated`);
@@ -242,7 +269,7 @@ export default function EscalationAlertSettings() {
             // Delete all roles in this chain group
             const ids = chain.roles.map(r => r.id);
             for (const id of ids) {
-                await fetch(`/api/roles/${id}`, { method: 'DELETE' });
+                await fetch(`/api/proxy/roles/${id}`, { method: 'DELETE' });
             }
             setRoles(prev => prev.filter(r => !ids.includes(r.id)));
             if (selectedChainKey === chain.key) setSelectedChainKey(null);

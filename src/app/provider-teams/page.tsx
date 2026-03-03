@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
@@ -9,98 +9,28 @@ type Member = {
     id: string;
     firstName: string;
     lastName: string;
-    role: string;
-    status: 'Active' | 'On Leave' | 'Off Duty';
+    jobTitle: string;
+    status: string;
 };
 
 type Team = {
     id: string;
     name: string;
+    departmentId?: string;
     department: string;
     description: string;
     lead: string;
+    leadId?: string;
+    memberCount: number;
     members: Member[];
     createdAt: string;
 };
 
-const mockTeams: Team[] = [
-    {
-        id: '1',
-        name: 'Emergency Response Unit',
-        department: 'Emergency',
-        description: 'Primary emergency response team handling critical cases and trauma.',
-        lead: 'Kwame Asante',
-        createdAt: '2025-11-10',
-        members: [
-            { id: 'm1', firstName: 'Kwame', lastName: 'Asante', role: 'Team Lead', status: 'Active' },
-            { id: 'm2', firstName: 'Ama', lastName: 'Serwaa', role: 'Charge Nurse', status: 'Active' },
-            { id: 'm3', firstName: 'Kofi', lastName: 'Darko', role: 'Resident', status: 'Active' },
-            { id: 'm4', firstName: 'Yaa', lastName: 'Amponsah', role: 'Nurse', status: 'On Leave' },
-        ],
-    },
-    {
-        id: '2',
-        name: 'ICU Care Team',
-        department: 'ICU',
-        description: 'Intensive care unit team for critically ill patients.',
-        lead: 'Ama Mensah',
-        createdAt: '2025-12-01',
-        members: [
-            { id: 'm5', firstName: 'Ama', lastName: 'Mensah', role: 'Team Lead', status: 'Active' },
-            { id: 'm6', firstName: 'Kofi', lastName: 'Mensah', role: 'Intensivist', status: 'Active' },
-            { id: 'm7', firstName: 'Efua', lastName: 'Darko', role: 'ICU Nurse', status: 'Active' },
-        ],
-    },
-    {
-        id: '3',
-        name: 'Surgical Team A',
-        department: 'Surgery',
-        description: 'General and specialized surgery team.',
-        lead: 'James Owusu',
-        createdAt: '2026-01-15',
-        members: [
-            { id: 'm8', firstName: 'James', lastName: 'Owusu', role: 'Team Lead', status: 'Active' },
-            { id: 'm9', firstName: 'Akua', lastName: 'Boateng', role: 'Surgeon', status: 'Active' },
-            { id: 'm10', firstName: 'Kwesi', lastName: 'Appiah', role: 'Anesthesiologist', status: 'Off Duty' },
-            { id: 'm11', firstName: 'Adwoa', lastName: 'Frimpong', role: 'Scrub Nurse', status: 'Active' },
-            { id: 'm12', firstName: 'Yaw', lastName: 'Mensah', role: 'Resident', status: 'Active' },
-        ],
-    },
-    {
-        id: '4',
-        name: 'Pediatrics Team',
-        department: 'Pediatrics',
-        description: 'Pediatric care team for children and adolescents.',
-        lead: 'Abena Osei',
-        createdAt: '2026-02-01',
-        members: [
-            { id: 'm13', firstName: 'Abena', lastName: 'Osei', role: 'Team Lead', status: 'Active' },
-            { id: 'm14', firstName: 'Kojo', lastName: 'Asante', role: 'Pediatrician', status: 'Active' },
-        ],
-    },
-];
-
-const departments = ['All', 'Emergency', 'ICU', 'Surgery', 'Pediatrics', 'Radiology', 'Oncology'];
 const roleOptions = ['Team Lead', 'Charge Nurse', 'Nurse', 'Resident', 'Surgeon', 'Intensivist', 'ICU Nurse', 'Anesthesiologist', 'Scrub Nurse', 'Pediatrician', 'Physician'];
 
-type StaffEntry = { id: number; first_name: string; last_name: string; role: string; dept: string; employee_id: string };
+type StaffEntry = { id: string; first_name: string; last_name: string; job_title: string; dept: string; employee_id: string };
 
-const allStaff: StaffEntry[] = [
-    { id: 1, first_name: 'Ama', last_name: 'Mensah', role: 'Senior Resident', dept: 'Cardiology', employee_id: 'AMC-0012' },
-    { id: 2, first_name: 'Kwame', last_name: 'Asante', role: 'Attending Physician', dept: 'Internal Med', employee_id: 'AMC-0045' },
-    { id: 3, first_name: 'Abena', last_name: 'Osei', role: 'Head Nurse', dept: 'ICU', employee_id: 'AMC-0078' },
-    { id: 4, first_name: 'Kofi', last_name: 'Boateng', role: 'Resident', dept: 'Pediatrics', employee_id: 'AMC-0091' },
-    { id: 5, first_name: 'Efua', last_name: 'Adjei', role: 'Cardiologist', dept: 'Cardiology', employee_id: 'AMC-0103' },
-    { id: 6, first_name: 'Yaw', last_name: 'Darko', role: 'Lead Nurse', dept: 'Emergency', employee_id: 'AMC-0156' },
-    { id: 7, first_name: 'Akosua', last_name: 'Frimpong', role: 'Intensivist', dept: 'ICU', employee_id: 'AMC-0187' },
-    { id: 8, first_name: 'Adwoa', last_name: 'Tetteh', role: 'Technician', dept: 'Radiology', employee_id: 'AMC-0204' },
-    { id: 9, first_name: 'Kwesi', last_name: 'Owusu', role: 'Pediatrician', dept: 'Pediatrics', employee_id: 'AMC-0231' },
-    { id: 10, first_name: 'Esi', last_name: 'Appiah', role: 'Pediatric Nurse', dept: 'Pediatrics', employee_id: 'AMC-0267' },
-    { id: 11, first_name: 'Nana', last_name: 'Agyemang', role: 'Paramedic', dept: 'Emergency', employee_id: 'AMC-0289' },
-    { id: 12, first_name: 'Yaa', last_name: 'Amoako', role: 'Surgeon', dept: 'Surgery', employee_id: 'AMC-0312' },
-];
-
-const staffDepartments = ['All', ...Array.from(new Set(allStaff.map(s => s.dept)))];
+type DepartmentEntry = { id: string; name: string };
 
 const statusColor: Record<string, string> = {
     Active: 'var(--success)',
@@ -108,8 +38,107 @@ const statusColor: Record<string, string> = {
     'Off Duty': 'var(--text-muted)',
 };
 
+function toStatusLabel(status?: string): 'Active' | 'On Leave' | 'Off Duty' {
+    const s = (status || '').toLowerCase();
+    if (s.includes('leave')) return 'On Leave';
+    if (s.includes('off')) return 'Off Duty';
+    return 'Active';
+}
+
+function parseDepartments(raw: unknown): DepartmentEntry[] {
+    const list = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object'
+            ? ((raw as { items?: unknown; data?: unknown; departments?: unknown }).items
+                || (raw as { items?: unknown; data?: unknown; departments?: unknown }).data
+                || (raw as { items?: unknown; data?: unknown; departments?: unknown }).departments)
+            : []);
+    if (!Array.isArray(list)) return [];
+
+    return list
+        .map((d: unknown) => {
+            if (!d || typeof d !== 'object') return null;
+            const rec = d as { id?: string; department_id?: string; name?: string; department_name?: string };
+            const id = rec.id || rec.department_id || '';
+            const name = rec.name || rec.department_name || '';
+            return id && name ? { id, name } : null;
+        })
+        .filter((d): d is DepartmentEntry => Boolean(d));
+}
+
+function parseStaff(raw: unknown): StaffEntry[] {
+    const list = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object'
+            ? ((raw as { items?: unknown; data?: unknown; staff?: unknown }).items
+                || (raw as { items?: unknown; data?: unknown; staff?: unknown }).data
+                || (raw as { items?: unknown; data?: unknown; staff?: unknown }).staff)
+            : []);
+    if (!Array.isArray(list)) return [];
+
+    return list
+        .map((s: unknown, idx) => {
+            if (!s || typeof s !== 'object') return null;
+            const rec = s as Record<string, unknown>;
+            return {
+                id: String(rec.id || rec.staff_id || `s-${idx}`),
+                first_name: String(rec.first_name || '').trim(),
+                last_name: String(rec.last_name || '').trim(),
+                job_title: String(rec.job_title || rec.role || 'Staff'),
+                dept: String(rec.department_name || rec.department || rec.dept || 'Unassigned'),
+                employee_id: String(rec.employee_id || rec.username || rec.id || `EMP-${idx}`),
+            };
+        })
+        .filter((s): s is StaffEntry => Boolean(s));
+}
+
+function parseTeams(raw: unknown, departments: DepartmentEntry[]): Team[] {
+    const list = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object'
+            ? ((raw as { items?: unknown; data?: unknown; teams?: unknown }).items
+                || (raw as { items?: unknown; data?: unknown; teams?: unknown }).data
+                || (raw as { items?: unknown; data?: unknown; teams?: unknown }).teams)
+            : []);
+    if (!Array.isArray(list)) return [];
+
+    const deptNameById = new Map(departments.map(d => [d.id, d.name]));
+
+    return list
+        .map((t: unknown, idx): Team | null => {
+            if (!t || typeof t !== 'object') return null;
+            const rec = t as Record<string, unknown>;
+            const depId = String(rec.department_id || '');
+            const leadObj = (rec.lead && typeof rec.lead === 'object') ? rec.lead as Record<string, unknown> : {};
+            const membersRaw = Array.isArray(rec.members) ? rec.members as Record<string, unknown>[] : [];
+
+            return {
+                id: String(rec.id || `t-${idx}`),
+                name: String(rec.name || 'Unnamed Team'),
+                departmentId: depId || undefined,
+                department: String(rec.department_name || deptNameById.get(depId) || 'Unassigned'),
+                description: String(rec.description || ''),
+                lead: `${String(leadObj.first_name || '').trim()} ${String(leadObj.last_name || '').trim()}`.trim() || 'Unassigned',
+                leadId: String(leadObj.id || rec.lead_id || ''),
+                memberCount: Number(rec.member_count || membersRaw.length || 0),
+                createdAt: String(rec.created_at || '').slice(0, 10),
+                members: membersRaw.map((m, mIdx) => ({
+                    id: String(m.id || `m-${mIdx}`),
+                    firstName: String(m.first_name || ''),
+                    lastName: String(m.last_name || ''),
+                    jobTitle: String(m.job_title || 'Staff'),
+                    status: toStatusLabel(String(m.status || 'active')),
+                })),
+            };
+        })
+        .filter((t): t is Team => Boolean(t));
+}
+
 export default function ProviderTeamsPage() {
-    const [teams, setTeams] = useState<Team[]>(mockTeams);
+    const [teams, setTeams] = useState<Team[]>([]);
+    const [allStaff, setAllStaff] = useState<StaffEntry[]>([]);
+    const [departments, setDepartments] = useState<DepartmentEntry[]>([]);
+    const [loading, setLoading] = useState(true);
     const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
     const [search, setSearch] = useState('');
     const [deptFilter, setDeptFilter] = useState('All');
@@ -118,14 +147,15 @@ export default function ProviderTeamsPage() {
     // Create team
     const [showCreate, setShowCreate] = useState(false);
     const [newName, setNewName] = useState('');
-    const [newDept, setNewDept] = useState('Emergency');
+    const [newDeptId, setNewDeptId] = useState('');
+    const [newLeadId, setNewLeadId] = useState('');
     const [newDesc, setNewDesc] = useState('');
 
     // Add member
     const [showAddMember, setShowAddMember] = useState(false);
     const [staffSearch, setStaffSearch] = useState('');
     const [staffDeptFilter, setStaffDeptFilter] = useState('All');
-    const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
+    const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
     const [memberRole, setMemberRole] = useState(roleOptions[0]);
 
     // Edit team
@@ -135,6 +165,35 @@ export default function ProviderTeamsPage() {
     const [editDept, setEditDept] = useState('');
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+    const fetchData = useCallback(async () => {
+        try {
+            const [teamRes, deptRes, staffRes] = await Promise.all([
+                fetch('/api/proxy/teams'),
+                fetch('/api/proxy/departments'),
+                fetch('/api/proxy/staff?page_size=100&page_id=1'),
+            ]);
+            const deptData = deptRes.ok ? parseDepartments(await deptRes.json()) : [];
+            setDepartments(deptData);
+            if (staffRes.ok) {
+                const staffData = parseStaff(await staffRes.json());
+                setAllStaff(staffData);
+            }
+            if (teamRes.ok) {
+                const teamData = parseTeams(await teamRes.json(), deptData);
+                setTeams(teamData);
+            }
+            if (deptData.length > 0 && !newDeptId) setNewDeptId(deptData[0].id);
+        } catch {
+            showToast('Failed to load provider teams');
+        }
+        setLoading(false);
+    }, [newDeptId]);
+
+    useEffect(() => { fetchData(); }, [fetchData]);
+
+    const departmentFilters = useMemo(() => ['All', ...departments.map(d => d.name)], [departments]);
+    const staffDepartments = useMemo(() => ['All', ...Array.from(new Set(allStaff.map(s => s.dept)))], [allStaff]);
 
     const selectedTeam = teams.find(t => t.id === selectedTeamId) || null;
 
@@ -150,29 +209,71 @@ export default function ProviderTeamsPage() {
         return true;
     });
 
-    const handleCreateTeam = () => {
+    const handleCreateTeam = async () => {
         if (!newName.trim()) return;
-        const team: Team = {
-            id: Date.now().toString(),
-            name: newName.trim(),
-            department: newDept,
-            description: newDesc.trim(),
-            lead: 'Unassigned',
-            createdAt: new Date().toISOString().split('T')[0],
-            members: [],
-        };
-        setTeams(prev => [...prev, team]);
-        setShowCreate(false);
-        setNewName('');
-        setNewDesc('');
-        showToast(`Team "${team.name}" created`);
+        const existing = teams.find(t =>
+            t.name.trim().toLowerCase() === newName.trim().toLowerCase() &&
+            (newDeptId ? t.departmentId === newDeptId : true)
+        );
+        if (existing) {
+            showToast(`Team "${newName.trim()}" already exists in this department`);
+            return;
+        }
+        try {
+            const res = await fetch('/api/proxy/teams', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: newName.trim(),
+                    description: newDesc.trim(),
+                    department_id: newDeptId || undefined,
+                    lead_id: newLeadId || undefined,
+                }),
+            });
+            if (!res.ok) {
+                let errorMsg = 'Failed to create team';
+                try {
+                    const err = await res.json();
+                    const details = err?.detail || err?.details || err?.error || err?.message;
+                    if (res.status === 409) {
+                        errorMsg = typeof details === 'string' && details.trim()
+                            ? `Team already exists: ${details}`
+                            : 'Team already exists';
+                    } else if (typeof details === 'string' && details.trim()) {
+                        errorMsg = details;
+                    }
+                } catch {}
+                showToast(errorMsg);
+                return;
+            }
+
+            const created = await res.json();
+            const parsed = parseTeams([created], departments)[0];
+            if (parsed) setTeams(prev => [...prev, parsed]);
+            setShowCreate(false);
+            setNewName('');
+            setNewDesc('');
+            setNewLeadId('');
+            showToast(`Team "${parsed?.name || newName.trim()}" created`);
+        } catch {
+            showToast('Failed to create team');
+        }
     };
 
-    const handleDeleteTeam = (id: string) => {
+    const handleDeleteTeam = async (id: string) => {
         const team = teams.find(t => t.id === id);
-        setTeams(prev => prev.filter(t => t.id !== id));
-        if (selectedTeamId === id) setSelectedTeamId(null);
-        showToast(`Team "${team?.name}" deleted`);
+        try {
+            const res = await fetch(`/api/proxy/teams/${id}`, { method: 'DELETE' });
+            if (!res.ok) {
+                showToast('Failed to delete team');
+                return;
+            }
+            setTeams(prev => prev.filter(t => t.id !== id));
+            if (selectedTeamId === id) setSelectedTeamId(null);
+            showToast(`Team "${team?.name}" deleted`);
+        } catch {
+            showToast('Failed to delete team');
+        }
     };
 
     const existingMemberIds = selectedTeam ? selectedTeam.members.map(m => m.id) : [];
@@ -182,7 +283,7 @@ export default function ProviderTeamsPage() {
         if (staffSearch.trim()) {
             const q = staffSearch.toLowerCase();
             return `${s.first_name} ${s.last_name}`.toLowerCase().includes(q) ||
-                s.role.toLowerCase().includes(q) ||
+                s.job_title.toLowerCase().includes(q) ||
                 s.employee_id.toLowerCase().includes(q);
         }
         return true;
@@ -196,12 +297,12 @@ export default function ProviderTeamsPage() {
             id: selectedStaff.id.toString(),
             firstName: selectedStaff.first_name,
             lastName: selectedStaff.last_name,
-            role: memberRole,
+            jobTitle: memberRole,
             status: 'Active',
         };
         setTeams(prev => prev.map(t =>
             t.id === selectedTeam.id
-                ? { ...t, members: [...t.members, member] }
+                ? { ...t, members: [...t.members, member], memberCount: (t.memberCount || t.members.length) + 1 }
                 : t
         ));
         setShowAddMember(false);
@@ -217,21 +318,38 @@ export default function ProviderTeamsPage() {
         const member = selectedTeam.members.find(m => m.id === memberId);
         setTeams(prev => prev.map(t =>
             t.id === selectedTeam.id
-                ? { ...t, members: t.members.filter(m => m.id !== memberId) }
+                ? { ...t, members: t.members.filter(m => m.id !== memberId), memberCount: Math.max((t.memberCount || t.members.length) - 1, 0) }
                 : t
         ));
         showToast(`${member?.firstName} ${member?.lastName} removed`);
     };
 
-    const handleSaveEdit = () => {
+    const handleSaveEdit = async () => {
         if (!selectedTeam || !editName.trim()) return;
-        setTeams(prev => prev.map(t =>
-            t.id === selectedTeam.id
-                ? { ...t, name: editName.trim(), description: editDesc.trim(), department: editDept }
-                : t
-        ));
-        setEditingTeam(false);
-        showToast('Team updated');
+        try {
+            const dep = departments.find(d => d.name === editDept);
+            const res = await fetch(`/api/proxy/teams/${selectedTeam.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: editName.trim(),
+                    description: editDesc.trim(),
+                    department_id: dep?.id || selectedTeam.departmentId,
+                    lead_id: selectedTeam.leadId || undefined,
+                }),
+            });
+            if (!res.ok) {
+                showToast('Failed to update team');
+                return;
+            }
+            const updated = await res.json();
+            const parsed = parseTeams([updated], departments)[0];
+            setTeams(prev => prev.map(t => (t.id === selectedTeam.id ? (parsed || t) : t)));
+            setEditingTeam(false);
+            showToast('Team updated');
+        } catch {
+            showToast('Failed to update team');
+        }
     };
 
     const openEdit = () => {
@@ -271,7 +389,7 @@ export default function ProviderTeamsPage() {
                         </div>
 
                         <div style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', padding: 3 }}>
-                            {departments.map(d => (
+                            {departmentFilters.map(d => (
                                 <button
                                     key={d}
                                     onClick={() => setDeptFilter(d)}
@@ -309,9 +427,18 @@ export default function ProviderTeamsPage() {
                                 </div>
                                 <div>
                                     <label className="label">Department</label>
-                                    <select className="input" value={newDept} onChange={e => setNewDept(e.target.value)} style={{ fontSize: 13 }}>
-                                        {departments.filter(d => d !== 'All').map(d => (
-                                            <option key={d} value={d}>{d}</option>
+                                    <select className="input" value={newDeptId} onChange={e => setNewDeptId(e.target.value)} style={{ fontSize: 13 }}>
+                                        {departments.map(d => (
+                                            <option key={d.id} value={d.id}>{d.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="label">Lead</label>
+                                    <select className="input" value={newLeadId} onChange={e => setNewLeadId(e.target.value)} style={{ fontSize: 13 }}>
+                                        <option value="">Unassigned</option>
+                                        {allStaff.map(s => (
+                                            <option key={s.id} value={s.id}>{s.first_name} {s.last_name} ({s.job_title})</option>
                                         ))}
                                     </select>
                                 </div>
@@ -339,6 +466,7 @@ export default function ProviderTeamsPage() {
                                 filtered.map(team => {
                                     const isSelected = selectedTeamId === team.id;
                                     const activeCount = team.members.filter(m => m.status === 'Active').length;
+                                    const totalMembers = team.memberCount || team.members.length;
                                     return (
                                         <div
                                             key={team.id}
@@ -363,7 +491,7 @@ export default function ProviderTeamsPage() {
                                                     </div>
                                                     <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.4 }}>{team.description}</p>
                                                     <div style={{ display: 'flex', gap: 16, fontSize: 11.5, color: 'var(--text-secondary)' }}>
-                                                        <span><strong>{team.members.length}</strong> members</span>
+                                                        <span><strong>{totalMembers}</strong> members</span>
                                                         <span><strong>{activeCount}</strong> active</span>
                                                         <span>Lead: <strong>{team.lead}</strong></span>
                                                     </div>
@@ -396,8 +524,8 @@ export default function ProviderTeamsPage() {
                                             <div>
                                                 <label className="label">Department</label>
                                                 <select className="input" value={editDept} onChange={e => setEditDept(e.target.value)} style={{ fontSize: 13 }}>
-                                                    {departments.filter(d => d !== 'All').map(d => (
-                                                        <option key={d} value={d}>{d}</option>
+                                                    {departments.map(d => (
+                                                        <option key={d.id} value={d.name}>{d.name}</option>
                                                     ))}
                                                 </select>
                                             </div>
@@ -470,7 +598,7 @@ export default function ProviderTeamsPage() {
                                                             return (
                                                                 <div
                                                                     key={s.id}
-                                                                    onClick={() => { setSelectedStaffId(isChosen ? null : s.id); setMemberRole(s.role); }}
+                                                                    onClick={() => { setSelectedStaffId(isChosen ? null : s.id); setMemberRole(s.job_title); }}
                                                                     style={{
                                                                         display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px',
                                                                         borderRadius: 'var(--radius-sm)', cursor: 'pointer', transition: 'all 0.12s',
@@ -488,7 +616,7 @@ export default function ProviderTeamsPage() {
                                                                     </div>
                                                                     <div style={{ flex: 1, minWidth: 0 }}>
                                                                         <div style={{ fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.first_name} {s.last_name}</div>
-                                                                        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{s.role} · {s.dept} · {s.employee_id}</div>
+                                                                        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{s.job_title} · {s.dept} · {s.employee_id}</div>
                                                                     </div>
                                                                     {isChosen && <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--helix-primary)' }}>check_circle</span>}
                                                                 </div>
@@ -537,7 +665,7 @@ export default function ProviderTeamsPage() {
                                                             <div>
                                                                 <div style={{ fontSize: 12, fontWeight: 600 }}>{member.firstName} {member.lastName}</div>
                                                                 <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
-                                                                    {member.role}
+                                                                    {member.jobTitle}
                                                                     <span style={{ marginLeft: 8, color: statusColor[member.status], fontWeight: 600 }}>{member.status}</span>
                                                                 </div>
                                                             </div>

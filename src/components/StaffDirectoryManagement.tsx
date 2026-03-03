@@ -1,28 +1,68 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
 
-type StaffMember = { id: number; first_name: string; last_name: string; email: string; role: string; dept: string; status: string; access: string; employee_id: string };
+type StaffMember = {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    job_title: string;
+    dept: string;
+    status: string;
+    access: string;
+    employee_id: string;
+    patient_access: boolean;
+};
 
-type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'role' | 'status';
+type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status';
 
 const initialStaff: StaffMember[] = [
-    { id: 1, first_name: 'Ama', last_name: 'Mensah', email: 'a.mensah@accramedical.com.gh', role: 'Senior Resident', dept: 'Cardiology', status: 'active', access: 'Administrator', employee_id: 'AMC-0012' },
-    { id: 2, first_name: 'Kwame', last_name: 'Asante', email: 'k.asante@accramedical.com.gh', role: 'Attending Physician', dept: 'Internal Med', status: 'active', access: 'Supervisor', employee_id: 'AMC-0045' },
-    { id: 3, first_name: 'Abena', last_name: 'Osei', email: 'a.osei@accramedical.com.gh', role: 'Head Nurse', dept: 'ICU', status: 'active', access: 'Staff', employee_id: 'AMC-0078' },
-    { id: 4, first_name: 'Kofi', last_name: 'Boateng', email: 'k.boateng@accramedical.com.gh', role: 'Resident', dept: 'Pediatrics', status: 'disabled', access: 'Staff', employee_id: 'AMC-0091' },
-    { id: 5, first_name: 'Efua', last_name: 'Adjei', email: 'e.adjei@accramedical.com.gh', role: 'Cardiologist', dept: 'Cardiology', status: 'active', access: 'Supervisor', employee_id: 'AMC-0103' },
-    { id: 6, first_name: 'Yaw', last_name: 'Darko', email: 'y.darko@accramedical.com.gh', role: 'Lead Nurse', dept: 'Emergency', status: 'active', access: 'Staff', employee_id: 'AMC-0156' },
-    { id: 7, first_name: 'Akosua', last_name: 'Frimpong', email: 'a.frimpong@accramedical.com.gh', role: 'Intensivist', dept: 'ICU', status: 'active', access: 'Supervisor', employee_id: 'AMC-0187' },
-    { id: 8, first_name: 'Adwoa', last_name: 'Tetteh', email: 'a.tetteh@accramedical.com.gh', role: 'Technician', dept: 'Radiology', status: 'active', access: 'Staff', employee_id: 'AMC-0204' },
-    { id: 9, first_name: 'Kwesi', last_name: 'Owusu', email: 'k.owusu@accramedical.com.gh', role: 'Pediatrician', dept: 'Pediatrics', status: 'active', access: 'Supervisor', employee_id: 'AMC-0231' },
-    { id: 10, first_name: 'Esi', last_name: 'Appiah', email: 'e.appiah@accramedical.com.gh', role: 'Pediatric Nurse', dept: 'Pediatrics', status: 'active', access: 'Staff', employee_id: 'AMC-0267' },
-    { id: 11, first_name: 'Nana', last_name: 'Agyemang', email: 'n.agyemang@accramedical.com.gh', role: 'Paramedic', dept: 'Emergency', status: 'disabled', access: 'Staff', employee_id: 'AMC-0289' },
-    { id: 12, first_name: 'Yaa', last_name: 'Amoako', email: 'y.amoako@accramedical.com.gh', role: 'Surgeon', dept: 'Surgery', status: 'active', access: 'Administrator', employee_id: 'AMC-0312' },
+    { id: '1', first_name: 'Ama', last_name: 'Mensah', email: 'a.mensah@accramedical.com.gh', job_title: 'Senior Resident', dept: 'Cardiology', status: 'active', access: 'Administrator', employee_id: 'AMC-0012', patient_access: true },
+    { id: '2', first_name: 'Kwame', last_name: 'Asante', email: 'k.asante@accramedical.com.gh', job_title: 'Attending Physician', dept: 'Internal Med', status: 'active', access: 'Supervisor', employee_id: 'AMC-0045', patient_access: true },
+    { id: '3', first_name: 'Abena', last_name: 'Osei', email: 'a.osei@accramedical.com.gh', job_title: 'Head Nurse', dept: 'ICU', status: 'active', access: 'Staff', employee_id: 'AMC-0078', patient_access: true },
 ];
+
+function parseStaffList(raw: unknown): StaffMember[] {
+    const list = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object'
+            ? ((raw as { items?: unknown; data?: unknown; staff?: unknown }).items
+                || (raw as { items?: unknown; data?: unknown; staff?: unknown }).data
+                || (raw as { items?: unknown; data?: unknown; staff?: unknown }).staff)
+            : []);
+    if (!Array.isArray(list)) return [];
+
+    return list
+        .map((row: unknown, idx): StaffMember | null => {
+            if (!row || typeof row !== 'object') return null;
+            const r = row as Record<string, unknown>;
+            const first = String(r.first_name || '').trim();
+            const last = String(r.last_name || '').trim();
+            const full = String(r.name || '').trim();
+            const [fullFirst = '', ...rest] = full.split(' ');
+            const fullLast = rest.join(' ');
+            const firstName = first || fullFirst || 'Unknown';
+            const lastName = last || fullLast || 'Staff';
+            const id = String(r.id || r.staff_id || `staff-${idx}`);
+            return {
+                id,
+                first_name: firstName,
+                last_name: lastName,
+                email: String(r.email || ''),
+                job_title: String(r.job_title || r.role || 'Staff'),
+                dept: String(r.department_name || r.department || r.dept || 'Unassigned'),
+                status: String(r.status || 'active').toLowerCase(),
+                access: String(r.system_role || r.access || 'Staff'),
+                employee_id: String(r.employee_id || r.username || id),
+                patient_access: Boolean(r.patient_access ?? r.can_access_patients ?? false),
+            };
+        })
+        .filter((s): s is StaffMember => Boolean(s));
+}
 
 const statusColors: Record<string, { color: string; bg: string; label: string }> = {
     active: { color: 'var(--success)', bg: 'var(--success-bg)', label: 'Active' },
@@ -38,6 +78,7 @@ const importHistory = [
 
 export default function StaffDirectoryManagement() {
     const [staff, setStaff] = useState(initialStaff);
+    const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [toast, setToast] = useState<string | null>(null);
     const [deptFilter, setDeptFilter] = useState('all');
@@ -47,8 +88,10 @@ export default function StaffDirectoryManagement() {
     const [newFirstName, setNewFirstName] = useState('');
     const [newLastName, setNewLastName] = useState('');
     const [newEmail, setNewEmail] = useState('');
+    const [newPhone, setNewPhone] = useState('');
     const [newRole, setNewRole] = useState('');
     const [newDept, setNewDept] = useState('Cardiology');
+    const [newPatientAccess, setNewPatientAccess] = useState(true);
     const [newEmpId, setNewEmpId] = useState('');
     const [sortKey, setSortKey] = useState<SortKey>('last_name');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -57,10 +100,27 @@ export default function StaffDirectoryManagement() {
     const [uploadedFile, setUploadedFile] = useState<string | null>(null);
     const [bulkHistory, setBulkHistory] = useState(importHistory);
     const [processing, setProcessing] = useState(false);
+    const [adding, setAdding] = useState(false);
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
-    const departments = ['all', ...Array.from(new Set(staff.map(s => s.dept)))];
+    const departments = useMemo(() => ['all', ...Array.from(new Set(staff.map(s => s.dept)))], [staff]);
+
+    const fetchStaff = useCallback(async () => {
+        try {
+            const res = await fetch('/api/proxy/staff?page_size=100&page_id=1');
+            if (res.ok) {
+                const data = await res.json();
+                const parsed = parseStaffList(data);
+                if (parsed.length > 0) setStaff(parsed);
+            }
+        } catch {
+            showToast('Failed to load staff from server');
+        }
+        setLoading(false);
+    }, []);
+
+    useEffect(() => { fetchStaff(); }, [fetchStaff]);
 
     const toggleSort = (key: SortKey) => {
         if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -69,7 +129,7 @@ export default function StaffDirectoryManagement() {
 
     const filtered = staff.filter(s => {
         const q = search.toLowerCase();
-        const matchSearch = search === '' || s.first_name.toLowerCase().includes(q) || s.last_name.toLowerCase().includes(q) || s.dept.toLowerCase().includes(q) || s.email.toLowerCase().includes(q) || s.employee_id.toLowerCase().includes(q);
+        const matchSearch = search === '' || s.first_name.toLowerCase().includes(q) || s.last_name.toLowerCase().includes(q) || s.dept.toLowerCase().includes(q) || s.email.toLowerCase().includes(q) || s.employee_id.toLowerCase().includes(q) || s.job_title.toLowerCase().includes(q);
         const matchDept = deptFilter === 'all' || s.dept === deptFilter;
         const matchStatus = statusFilter === 'all' || s.status === statusFilter;
         return matchSearch && matchDept && matchStatus;
@@ -79,23 +139,69 @@ export default function StaffDirectoryManagement() {
         return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
     });
 
-    const handleAdd = () => {
+    const handleAdd = async () => {
         if (!newFirstName.trim() || !newLastName.trim() || !newEmail.trim() || !newEmpId.trim()) return;
-        const newMember: StaffMember = { id: Date.now(), first_name: newFirstName.trim(), last_name: newLastName.trim(), email: newEmail, role: newRole || 'Staff', dept: newDept, status: 'active', access: 'Staff', employee_id: newEmpId.trim() };
-        setStaff(prev => [newMember, ...prev]);
-        setShowAddForm(false);
-        setNewFirstName(''); setNewLastName(''); setNewEmail(''); setNewRole(''); setNewEmpId('');
-        showToast(`${newFirstName} ${newLastName} added to staff`);
+        setAdding(true);
+        try {
+            const res = await fetch('/api/proxy/staff', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    first_name: newFirstName.trim(),
+                    last_name: newLastName.trim(),
+                    email: newEmail.trim(),
+                    phone: newPhone.trim(),
+                    job_title: (newRole || 'Staff').trim(),
+                    role: 'staff',
+                    department: newDept,
+                }),
+            });
+
+            if (!res.ok) {
+                showToast('Failed to add staff');
+                return;
+            }
+
+            const data = await res.json();
+            const created = parseStaffList([data])[0];
+            const fallbackMember: StaffMember = {
+                id: String(Date.now()),
+                first_name: newFirstName.trim(),
+                last_name: newLastName.trim(),
+                email: newEmail.trim(),
+                job_title: (newRole || 'Staff').trim(),
+                dept: newDept,
+                status: 'active',
+                access: 'Staff',
+                employee_id: newEmpId.trim(),
+                patient_access: newPatientAccess,
+            };
+
+            setStaff(prev => [created || fallbackMember, ...prev]);
+            setShowAddForm(false);
+            setNewFirstName('');
+            setNewLastName('');
+            setNewEmail('');
+            setNewPhone('');
+            setNewRole('');
+            setNewEmpId('');
+            setNewPatientAccess(true);
+            showToast(`${newFirstName} ${newLastName} added to staff`);
+        } catch {
+            showToast('Failed to add staff');
+        } finally {
+            setAdding(false);
+        }
     };
 
-    const handleRemove = (id: number) => {
+    const handleRemove = (id: string) => {
         const member = staff.find(s => s.id === id);
         setStaff(prev => prev.filter(s => s.id !== id));
         if (selected?.id === id) setSelected(null);
         showToast(`${member?.first_name} ${member?.last_name} removed`);
     };
 
-    const toggleStatus = (id: number) => {
+    const toggleStatus = (id: string) => {
         setStaff(prev => prev.map(s => s.id === id ? { ...s, status: s.status === 'active' ? 'disabled' : 'active' } : s));
         const member = staff.find(s => s.id === id);
         showToast(member?.status === 'active' ? `${member?.first_name} ${member?.last_name} disabled` : `${member?.first_name} ${member?.last_name} enabled`);
@@ -146,16 +252,18 @@ export default function StaffDirectoryManagement() {
                     {showAddForm && (
                         <div className="fade-in card" style={{ marginBottom: 18, padding: '18px 20px' }}>
                             <h3 style={{ fontSize: 14, marginBottom: 12 }}>New Staff Member</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 1fr 1fr 1.2fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 1fr 1fr 1.2fr 1fr 1fr 1fr 0.8fr', gap: 12, marginBottom: 14 }}>
                                 <div><label className="label">Employee ID *</label><input className="input" value={newEmpId} onChange={e => setNewEmpId(e.target.value)} placeholder="e.g. AMC-0400" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">First Name *</label><input className="input" value={newFirstName} onChange={e => setNewFirstName(e.target.value)} placeholder="First name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Last Name *</label><input className="input" value={newLastName} onChange={e => setNewLastName(e.target.value)} placeholder="Last name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Email *</label><input className="input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email address" style={{ fontSize: 12 }} /></div>
+                                <div><label className="label">Phone</label><input className="input" value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="+233241234567" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Job Title</label><input className="input" value={newRole} onChange={e => setNewRole(e.target.value)} placeholder="e.g. Nurse" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Department</label><select className="input" value={newDept} onChange={e => setNewDept(e.target.value)} style={{ fontSize: 12 }}>{['Cardiology', 'ICU', 'Emergency', 'Pediatrics', 'Internal Med', 'Radiology', 'Surgery'].map(d => <option key={d}>{d}</option>)}</select></div>
+                                <div><label className="label">Patient Access</label><select className="input" value={newPatientAccess ? 'yes' : 'no'} onChange={e => setNewPatientAccess(e.target.value === 'yes')} style={{ fontSize: 12 }}><option value="yes">Yes</option><option value="no">No</option></select></div>
                             </div>
-                            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={!newFirstName.trim() || !newLastName.trim() || !newEmail.trim() || !newEmpId.trim()}>
-                                <span className="material-icons-round" style={{ fontSize: 14 }}>person_add</span>Add Staff
+                            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding || !newFirstName.trim() || !newLastName.trim() || !newEmail.trim() || !newEmpId.trim()}>
+                                <span className="material-icons-round" style={{ fontSize: 14 }}>{adding ? 'hourglass_empty' : 'person_add'}</span>{adding ? 'Adding...' : 'Add Staff'}
                             </button>
                         </div>
                     )}
@@ -188,7 +296,7 @@ export default function StaffDirectoryManagement() {
                                 <option value="first_name-desc">First Name Z-A</option>
                                 <option value="dept-asc">Department A-Z</option>
                                 <option value="dept-desc">Department Z-A</option>
-                                <option value="role-asc">Role A-Z</option>
+                                <option value="job_title-asc">Job Title A-Z</option>
                                 <option value="employee_id-asc">Employee ID A-Z</option>
                                 <option value="status-asc">Status A-Z</option>
                             </select>
@@ -206,8 +314,9 @@ export default function StaffDirectoryManagement() {
                                             <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('first_name')}>First Name {sortKey === 'first_name' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('last_name')}>Last Name {sortKey === 'last_name' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th>Email</th>
-                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('role')}>Role {sortKey === 'role' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('job_title')}>Job Title {sortKey === 'job_title' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('dept')}>Department {sortKey === 'dept' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th>Patient Access</th>
                                             <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('status')}>Status {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ width: 40 }}></th>
                                         </tr>
@@ -221,8 +330,9 @@ export default function StaffDirectoryManagement() {
                                                     <td style={{ fontWeight: 500 }}>{s.first_name}</td>
                                                     <td style={{ fontWeight: 600 }}>{s.last_name}</td>
                                                     <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{s.email}</td>
-                                                    <td style={{ color: 'var(--text-secondary)' }}>{s.role}</td>
+                                                    <td style={{ color: 'var(--text-secondary)' }}>{s.job_title}</td>
                                                     <td style={{ color: 'var(--text-secondary)' }}>{s.dept}</td>
+                                                    <td><span className={`badge ${s.patient_access ? 'badge-info' : 'badge-neutral'}`}>{s.patient_access ? 'Yes' : 'No'}</span></td>
                                                     <td><span className="badge" style={{ background: st.bg, color: st.color }}>{st.label}</span></td>
                                                     <td>
                                                         <button className="btn btn-ghost btn-xs" onClick={e => { e.stopPropagation(); handleRemove(s.id); }}>
@@ -236,7 +346,7 @@ export default function StaffDirectoryManagement() {
                                 </table>
                             </div>
                             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-subtle)', fontSize: 12, color: 'var(--text-muted)' }}>
-                                Showing {filtered.length} of {staff.length} staff
+                                {loading ? 'Loading staff...' : `Showing ${filtered.length} of ${staff.length} staff`}
                             </div>
                         </div>
 
@@ -247,7 +357,7 @@ export default function StaffDirectoryManagement() {
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
                                         <div>
                                             <h3 style={{ fontSize: 15 }}>{selected.first_name} {selected.last_name}</h3>
-                                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{selected.role} · {selected.dept}</div>
+                                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{selected.job_title} · {selected.dept}</div>
                                         </div>
                                         <button className="btn btn-ghost btn-xs" onClick={() => setSelected(null)}>
                                             <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
@@ -257,7 +367,8 @@ export default function StaffDirectoryManagement() {
                                         {[
                                             { label: 'Email', value: selected.email, icon: 'mail' },
                                             { label: 'Department', value: selected.dept, icon: 'domain' },
-                                            { label: 'Job Title', value: selected.role, icon: 'badge' },
+                                            { label: 'Job Title', value: selected.job_title, icon: 'badge' },
+                                            { label: 'Patient Access', value: selected.patient_access ? 'Yes' : 'No', icon: 'health_and_safety' },
                                             { label: 'Employee ID', value: selected.employee_id, icon: 'fingerprint' },
                                         ].map(row => (
                                             <div key={row.label} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
