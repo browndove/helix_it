@@ -332,7 +332,12 @@ export default function StaffDirectoryManagement() {
                                                     <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{s.email}</td>
                                                     <td style={{ color: 'var(--text-secondary)' }}>{s.job_title}</td>
                                                     <td style={{ color: 'var(--text-secondary)' }}>{s.dept}</td>
-                                                    <td><span className={`badge ${s.patient_access ? 'badge-info' : 'badge-neutral'}`}>{s.patient_access ? 'Yes' : 'No'}</span></td>
+                                                    <td>
+                                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px 3px 6px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: s.patient_access ? 'rgba(34,139,34,0.08)' : 'rgba(120,120,120,0.08)', color: s.patient_access ? '#2d8a4e' : '#888', border: `1px solid ${s.patient_access ? 'rgba(34,139,34,0.18)' : 'rgba(120,120,120,0.15)'}` }}>
+                                                            <span className="material-icons-round" style={{ fontSize: 13 }}>{s.patient_access ? 'verified_user' : 'shield'}</span>
+                                                            {s.patient_access ? 'Granted' : 'None'}
+                                                        </div>
+                                                    </td>
                                                     <td><span className="badge" style={{ background: st.bg, color: st.color }}>{st.label}</span></td>
                                                     <td>
                                                         <button className="btn btn-ghost btn-xs" onClick={e => { e.stopPropagation(); handleRemove(s.id); }}>
@@ -368,7 +373,6 @@ export default function StaffDirectoryManagement() {
                                             { label: 'Email', value: selected.email, icon: 'mail' },
                                             { label: 'Department', value: selected.dept, icon: 'domain' },
                                             { label: 'Job Title', value: selected.job_title, icon: 'badge' },
-                                            { label: 'Patient Access', value: selected.patient_access ? 'Yes' : 'No', icon: 'health_and_safety' },
                                             { label: 'Employee ID', value: selected.employee_id, icon: 'fingerprint' },
                                         ].map(row => (
                                             <div key={row.label} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -379,6 +383,18 @@ export default function StaffDirectoryManagement() {
                                                 </div>
                                             </div>
                                         ))}
+                                    </div>
+
+                                    {/* Patient Access - distinct styled row */}
+                                    <div style={{ marginTop: 6, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: selected.patient_access ? 'rgba(34,139,34,0.05)' : 'rgba(120,120,120,0.04)', border: `1px solid ${selected.patient_access ? 'rgba(34,139,34,0.15)' : 'rgba(120,120,120,0.12)'}` }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 18, color: selected.patient_access ? '#2d8a4e' : '#999' }}>{selected.patient_access ? 'verified_user' : 'shield'}</span>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontSize: 12, fontWeight: 600, color: selected.patient_access ? '#2d8a4e' : '#888' }}>Patient Records Access</div>
+                                                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 1 }}>{selected.patient_access ? 'This staff member can view and manage patient records.' : 'No access to patient records.'}</div>
+                                            </div>
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 700, letterSpacing: '0.03em', background: selected.patient_access ? 'rgba(34,139,34,0.12)' : 'rgba(120,120,120,0.1)', color: selected.patient_access ? '#2d8a4e' : '#888' }}>{selected.patient_access ? 'GRANTED' : 'NONE'}</span>
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="card" style={{ padding: '18px' }}>

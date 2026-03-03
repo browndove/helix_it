@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -28,11 +29,21 @@ export default function Sidebar({
     hospitalSubtitle = 'Admin Portal',
     sections,
     footer,
-    adminName = 'Dr. Kwame Asante',
+    adminName: adminNameProp,
     adminRole = 'Super Admin',
 }: SidebarProps) {
     const pathname = usePathname();
     const isSettingsActive = pathname === '/settings';
+    const [sessionUser, setSessionUser] = useState<{ name: string; email: string } | null>(null);
+
+    useEffect(() => {
+        fetch('/api/me')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => { if (data?.name) setSessionUser(data); })
+            .catch(() => {});
+    }, []);
+
+    const adminName = adminNameProp || sessionUser?.name || 'Admin';
 
     // Generate initials from name
     const initials = adminName
