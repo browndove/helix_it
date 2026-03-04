@@ -3,6 +3,7 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://loca
 export const API_ENDPOINTS = {
   // Auth endpoints - use local proxy to avoid CORS
   LOGIN: `/api/proxy/auth/login`,
+  ADMIN_LOGIN: `/api/proxy/auth/admin/login`,
   LOGOUT: `/api/proxy/auth/logout`,
   CHANGE_PASSWORD: `/api/proxy/auth/change-password`,
   RENEW: `/api/proxy/auth/renew`,
@@ -10,8 +11,15 @@ export const API_ENDPOINTS = {
   RESET_PASSWORD: `/api/proxy/auth/reset-password`,
   SEND_OTP: `/api/proxy/auth/send-otp`,
   VERIFY_OTP: `/api/proxy/auth/verify-otp`,
+  ADMIN_VERIFY_OTP: `/api/proxy/auth/admin/verify-otp`,
   SETUP: `/api/proxy/auth/setup`,
+  SETUP_PREFILL: `/api/proxy/auth/setup-prefill`,
   ADMIN_RESET: (staffId: string) => `/api/proxy/auth/admin-reset/${staffId}`,
+  AUTH_ME: `/api/proxy/auth/me`,
+  AUTH_USER: `/api/proxy/auth/user`,
+  AUTH_SETTINGS: `/api/proxy/auth/settings`,
+  AUTH_SESSIONS: `/api/proxy/auth/sessions`,
+  AUTH_SESSION: (sessionId: string) => `/api/proxy/auth/sessions/${sessionId}`,
 
   // Departments
   DEPARTMENTS: `/api/proxy/departments`,

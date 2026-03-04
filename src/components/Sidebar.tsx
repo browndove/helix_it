@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { API_ENDPOINTS } from '@/lib/config';
 
 interface NavItem {
     icon: string;
@@ -24,26 +25,52 @@ interface SidebarProps {
     adminRole?: string;
 }
 
+function formatRoleLabel(role?: string): string {
+    if (!role) return 'Admin';
+    return role
+        .split(/[_\s-]+/)
+        .filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join(' ');
+}
+
 export default function Sidebar({
     hospitalName = 'Accra Medical Center',
     hospitalSubtitle = 'Admin Portal',
     sections,
     footer,
     adminName: adminNameProp,
-    adminRole = 'Super Admin',
+    adminRole,
 }: SidebarProps) {
     const pathname = usePathname();
     const isSettingsActive = pathname === '/settings';
-    const [sessionUser, setSessionUser] = useState<{ name: string; email: string } | null>(null);
+    const [sessionUser, setSessionUser] = useState<{ name: string; email: string; role: string } | null>(null);
 
     useEffect(() => {
-        fetch('/api/me')
+        fetch(API_ENDPOINTS.AUTH_ME)
             .then(r => r.ok ? r.json() : null)
-            .then(data => { if (data?.name) setSessionUser(data); })
+            .then(data => {
+                const user = data?.user && typeof data.user === 'object' ? data.user : data;
+                if (!user || typeof user !== 'object') return;
+
+                const firstName = String(user.first_name || '').trim();
+                const lastName = String(user.last_name || '').trim();
+                const fallbackName = `${firstName} ${lastName}`.trim();
+                const name = String(user.name || fallbackName || '').trim();
+                if (!name) return;
+
+                const role = formatRoleLabel(String(user.role || user.system_role || 'Admin'));
+                setSessionUser({
+                    name,
+                    email: String(user.email || ''),
+                    role,
+                });
+            })
             .catch(() => {});
     }, []);
 
-    const adminName = adminNameProp || sessionUser?.name || 'Admin';
+    const adminName = adminNameProp || sessionUser?.name || 'User';
+    const resolvedAdminRole = adminRole || sessionUser?.role || 'Admin';
 
     // Generate initials from name
     const initials = adminName
@@ -202,7 +229,7 @@ export default function Sidebar({
                         <div style={{
                             fontSize: 10, color: 'var(--text-muted)', fontWeight: 500,
                         }}>
-                            {adminRole}
+                            {resolvedAdminRole}
                         </div>
                     </div>
                     <span className="material-icons-round" style={{

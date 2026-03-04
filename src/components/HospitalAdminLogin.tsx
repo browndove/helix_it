@@ -66,7 +66,7 @@ export default function HospitalAdminLogin() {
         }
         setLoading(true);
         try {
-            const res = await fetch(API_ENDPOINTS.LOGIN, {
+            const res = await fetch(API_ENDPOINTS.ADMIN_LOGIN, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password }),
@@ -98,7 +98,7 @@ export default function HospitalAdminLogin() {
         if (resendTimer > 0) return;
         setLoading(true);
         try {
-            const res = await fetch(API_ENDPOINTS.LOGIN, {
+            const res = await fetch(API_ENDPOINTS.ADMIN_LOGIN, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: sessionEmail, password }),
@@ -128,7 +128,7 @@ export default function HospitalAdminLogin() {
         }
         setLoading(true);
         try {
-            const res = await fetch(API_ENDPOINTS.VERIFY_OTP, {
+            const res = await fetch(API_ENDPOINTS.ADMIN_VERIFY_OTP, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: sessionEmail, otp }),

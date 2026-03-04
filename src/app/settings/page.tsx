@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
+import { API_ENDPOINTS } from '@/lib/config';
 
 type Admin = {
     id: string;
@@ -14,12 +16,24 @@ type Admin = {
     lastLogin: string;
 };
 
-const mockAdmins: Admin[] = [
-    { id: '1', name: 'Dr. Kwame Asante', email: 'k.asante@accramedical.com', role: 'Super Admin', status: 'Active', lastLogin: '2 hours ago' },
-    { id: '2', name: 'Ama Mensah', email: 'a.mensah@accramedical.com', role: 'Admin', status: 'Active', lastLogin: '1 day ago' },
-    { id: '3', name: 'Kofi Boateng', email: 'k.boateng@accramedical.com', role: 'Editor', status: 'Active', lastLogin: '3 days ago' },
-    { id: '4', name: 'Efua Darko', email: 'e.darko@accramedical.com', role: 'Viewer', status: 'Invited', lastLogin: 'Never' },
-];
+type SessionEntry = {
+    id: string;
+    device: string;
+    location: string;
+    time: string;
+    current: boolean;
+};
+
+type StaffLite = {
+    id: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    phone: string;
+    job_title: string;
+    role: string;
+    status: string;
+};
 
 const roleColors: Record<string, string> = {
     'Super Admin': 'var(--helix-primary)',
@@ -28,29 +42,435 @@ const roleColors: Record<string, string> = {
     'Viewer': 'var(--text-muted)',
 };
 
+function formatRoleLabel(role?: string): string {
+    if (!role) return 'Admin';
+    return role
+        .split(/[_\s-]+/)
+        .filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join(' ');
+}
+
+function formatSessionTime(ts?: string): string {
+    if (!ts) return 'Unknown';
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return ts;
+    return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function parseSessions(raw: unknown): SessionEntry[] {
+    const list = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object'
+            ? ((raw as { items?: unknown; data?: unknown; sessions?: unknown }).items
+                || (raw as { items?: unknown; data?: unknown; sessions?: unknown }).data
+                || (raw as { items?: unknown; data?: unknown; sessions?: unknown }).sessions)
+            : []);
+    if (!Array.isArray(list)) return [];
+
+    return list
+        .map((s: unknown, idx): SessionEntry | null => {
+            if (!s || typeof s !== 'object') return null;
+            const rec = s as Record<string, unknown>;
+            const device = String(rec.device || rec.user_agent || rec.device_name || 'Unknown Device');
+            const location = String(rec.location || rec.ip || rec.ip_address || 'Unknown Location');
+            const time = formatSessionTime(String(rec.last_active_at || rec.updated_at || rec.created_at || ''));
+            const current = Boolean(rec.current ?? rec.is_current ?? false);
+            return {
+                id: String(rec.id || rec.session_id || `session-${idx}`),
+                device,
+                location,
+                time: current ? 'Current session' : time,
+                current,
+            };
+        })
+        .filter((s): s is SessionEntry => Boolean(s));
+}
+
+function normalizeAdminRole(value?: string): Admin['role'] {
+    const role = String(value || '').trim().toLowerCase();
+    if (role === 'superadmin' || role === 'super_admin' || role === 'super-admin') return 'Super Admin';
+    if (role === 'editor') return 'Editor';
+    if (role === 'viewer') return 'Viewer';
+    return 'Admin';
+}
+
+function isAdminLikeRole(value?: string): boolean {
+    const role = String(value || '').trim().toLowerCase();
+    return role.includes('admin');
+}
+
+function normalizeAdminStatus(value?: string): Admin['status'] {
+    const status = String(value || '').trim().toLowerCase();
+    if (status.includes('invite') || status.includes('pending')) return 'Invited';
+    if (status.includes('disable') || status.includes('suspend')) return 'Disabled';
+    return 'Active';
+}
+
+function parseAdmins(raw: unknown): Admin[] {
+    const list = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object'
+            ? ((raw as { items?: unknown; data?: unknown; staff?: unknown }).items
+                || (raw as { items?: unknown; data?: unknown; staff?: unknown }).data
+                || (raw as { items?: unknown; data?: unknown; staff?: unknown }).staff)
+            : []);
+    if (!Array.isArray(list)) return [];
+
+    return list
+        .map((row: unknown, idx): Admin | null => {
+            if (!row || typeof row !== 'object') return null;
+            const r = row as Record<string, unknown>;
+            const roleRaw = String(r.system_role || r.user_role || r.role || r.access || '').trim();
+            if (!isAdminLikeRole(roleRaw)) return null;
+            const first = String(r.first_name || '').trim();
+            const last = String(r.last_name || '').trim();
+            const derivedName = `${first} ${last}`.trim();
+            const email = String(r.email || '').trim();
+            const fallbackName = email.includes('@') ? email.split('@')[0] : `Admin ${idx + 1}`;
+            const lastSeenRaw = String(r.last_login_at || r.last_login || r.last_seen_at || r.updated_at || '');
+
+            return {
+                id: String(r.id || r.staff_id || r.user_id || `admin-${idx}`),
+                name: String(r.name || r.username || derivedName || fallbackName),
+                email,
+                role: normalizeAdminRole(roleRaw),
+                status: normalizeAdminStatus(String(r.status || 'active')),
+                lastLogin: lastSeenRaw ? formatSessionTime(lastSeenRaw) : 'Never',
+            };
+        })
+        .filter((admin): admin is Admin => Boolean(admin));
+}
+
+function parseStaffLite(raw: unknown): StaffLite[] {
+    const list = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object'
+            ? ((raw as { items?: unknown; data?: unknown; staff?: unknown }).items
+                || (raw as { items?: unknown; data?: unknown; staff?: unknown }).data
+                || (raw as { items?: unknown; data?: unknown; staff?: unknown }).staff)
+            : []);
+    if (!Array.isArray(list)) return [];
+
+    return list
+        .map((row: unknown, idx): StaffLite | null => {
+            if (!row || typeof row !== 'object') return null;
+            const r = row as Record<string, unknown>;
+            return {
+                id: String(r.id || r.staff_id || `staff-${idx}`),
+                email: String(r.email || '').trim(),
+                first_name: String(r.first_name || '').trim(),
+                last_name: String(r.last_name || '').trim(),
+                phone: String(r.phone || '').trim(),
+                job_title: String(r.job_title || '').trim(),
+                role: String(r.role || r.system_role || '').trim(),
+                status: String(r.status || '').trim(),
+            };
+        })
+        .filter((staff): staff is StaffLite => staff !== null && staff.email.length > 0);
+}
+
 export default function SettingsPage() {
+    const router = useRouter();
     const [toast, setToast] = useState<string | null>(null);
+    const [loadingSecurity, setLoadingSecurity] = useState(true);
+    const [savingSecurity, setSavingSecurity] = useState(false);
+    const [loadingAdmins, setLoadingAdmins] = useState(true);
 
     // Profile
-    const [fullName, setFullName] = useState('Dr. Kwame Asante');
-    const [email, setEmail] = useState('k.asante@accramedical.com');
-    const [phone, setPhone] = useState('+233 24 123 4567');
-    const [jobTitle, setJobTitle] = useState('Chief Medical Officer');
+    const [fullName, setFullName] = useState('');
+    const [email, setEmail] = useState('');
+    const [phone, setPhone] = useState('');
+    const [jobTitle, setJobTitle] = useState('');
+    const [userRole, setUserRole] = useState('Admin');
+    const [currentUserId, setCurrentUserId] = useState('');
 
     // Security
     const [twoFactor, setTwoFactor] = useState(false);
     const [sessionTimeout, setSessionTimeout] = useState('30');
+    const [sessions, setSessions] = useState<SessionEntry[]>([]);
 
     // Admins
-    const [admins] = useState<Admin[]>(mockAdmins);
+    const [admins, setAdmins] = useState<Admin[]>([]);
     const [showInvite, setShowInvite] = useState(false);
+    const [inviteFirstName, setInviteFirstName] = useState('');
+    const [inviteLastName, setInviteLastName] = useState('');
     const [inviteEmail, setInviteEmail] = useState('');
-    const [inviteRole, setInviteRole] = useState<Admin['role']>('Admin');
+    const [invitePhone, setInvitePhone] = useState('');
+    const [inviteJobTitle, setInviteJobTitle] = useState('Administrator');
+    const [invitingAdmin, setInvitingAdmin] = useState(false);
 
     // Active tab
     const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'admins'>('profile');
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+    const loadSecurityData = useCallback(async () => {
+        setLoadingSecurity(true);
+        setLoadingAdmins(true);
+        setCurrentUserId('');
+        try {
+            const [meRes, sessionsRes] = await Promise.all([
+                fetch(API_ENDPOINTS.AUTH_ME),
+                fetch(API_ENDPOINTS.AUTH_SESSIONS),
+            ]);
+            let resolvedFacilityId = '';
+            let currentUser: Record<string, unknown> | null = null;
+
+            if (meRes.ok) {
+                const me = await meRes.json();
+                const user = me?.user && typeof me.user === 'object' ? me.user : me;
+                currentUser = user && typeof user === 'object' ? user as Record<string, unknown> : null;
+                if (user?.id) setCurrentUserId(String(user.id));
+                const first = String(user?.first_name || '').trim();
+                const last = String(user?.last_name || '').trim();
+                const derivedName = String(user?.name || `${first} ${last}`.trim());
+                if (derivedName) setFullName(derivedName);
+                if (user?.email) setEmail(String(user.email));
+                if (user?.phone) setPhone(String(user.phone));
+                if (user?.job_title || user?.title) setJobTitle(String(user?.job_title || user?.title));
+                if (user?.role) setUserRole(formatRoleLabel(String(user.role)));
+                resolvedFacilityId = String(
+                    user?.facility_id
+                    || user?.facilityId
+                    || user?.hospital_id
+                    || user?.hospitalId
+                    || ''
+                );
+                setTwoFactor(Boolean(
+                    me?.otp_enabled
+                    ?? me?.two_factor_enabled
+                    ?? me?.two_factor
+                    ?? me?.twoFactorEnabled
+                    ?? false
+                ));
+                const timeoutVal = me?.inactivity_timeout_minutes ?? me?.session_timeout_minutes ?? me?.session_timeout;
+                if (typeof timeoutVal === 'number' && timeoutVal > 0) setSessionTimeout(String(timeoutVal));
+                if (timeoutVal === 'never') setSessionTimeout('never');
+            }
+
+            if (sessionsRes.ok) {
+                const rawSessions = await sessionsRes.json();
+                setSessions(parseSessions(rawSessions));
+            }
+
+            const adminParams = new URLSearchParams({
+                page_size: '100',
+                page_id: '1',
+            });
+            if (resolvedFacilityId) adminParams.set('facility_id', resolvedFacilityId);
+            const adminsRes = await fetch(`/api/proxy/staff?${adminParams.toString()}`);
+            if (adminsRes.ok) {
+                const rawAdmins = await adminsRes.json();
+                const parsedAdmins = parseAdmins(rawAdmins);
+
+                if (currentUser) {
+                    const userId = String(currentUser.id || '').trim();
+                    const userRoleRaw = String(currentUser.role || currentUser.system_role || '').trim();
+                    if (userId && isAdminLikeRole(userRoleRaw) && !parsedAdmins.some(a => a.id === userId)) {
+                        const first = String(currentUser.first_name || '').trim();
+                        const last = String(currentUser.last_name || '').trim();
+                        const derivedName = String(currentUser.name || `${first} ${last}`.trim() || 'Administrator');
+                        parsedAdmins.unshift({
+                            id: userId,
+                            name: derivedName,
+                            email: String(currentUser.email || ''),
+                            role: normalizeAdminRole(userRoleRaw),
+                            status: normalizeAdminStatus(String(currentUser.status || 'active')),
+                            lastLogin: 'Current session',
+                        });
+                    }
+                }
+
+                setAdmins(parsedAdmins);
+            } else {
+                setAdmins([]);
+            }
+        } catch {
+            // Keep existing defaults if backend fetch fails.
+            setAdmins([]);
+        } finally {
+            setLoadingSecurity(false);
+            setLoadingAdmins(false);
+        }
+    }, []);
+
+    useEffect(() => { loadSecurityData(); }, [loadSecurityData]);
+
+    const saveSessionSettings = async () => {
+        setSavingSecurity(true);
+        try {
+            const payload = {
+                session_timeout_minutes: sessionTimeout === 'never' ? null : Number(sessionTimeout),
+            };
+            const res = await fetch(API_ENDPOINTS.AUTH_SETTINGS, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) throw new Error('Failed');
+            showToast('Session settings saved');
+        } catch {
+            showToast('Failed to save session settings');
+        } finally {
+            setSavingSecurity(false);
+        }
+    };
+
+    const toggleTwoFactor = async () => {
+        const next = !twoFactor;
+        setTwoFactor(next);
+        try {
+            const res = await fetch(API_ENDPOINTS.AUTH_SETTINGS, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ two_factor_enabled: next }),
+            });
+            if (!res.ok) throw new Error('Failed');
+            showToast(next ? '2FA enabled' : '2FA disabled');
+        } catch {
+            setTwoFactor(!next);
+            showToast('Failed to update 2FA');
+        }
+    };
+
+    const revokeSession = async (sessionId: string) => {
+        try {
+            const res = await fetch(API_ENDPOINTS.AUTH_SESSION(sessionId), { method: 'DELETE' });
+            if (!res.ok) throw new Error('Failed');
+            setSessions(prev => prev.filter(s => s.id !== sessionId));
+            showToast('Session revoked');
+        } catch {
+            showToast('Failed to revoke session');
+        }
+    };
+
+    const handleLogout = async () => {
+        try {
+            await fetch(API_ENDPOINTS.LOGOUT, { method: 'POST' });
+        } catch {
+            // Continue logout UX even if request fails.
+        }
+        router.push('/');
+    };
+
+    const sendPasswordResetEmail = async (targetEmail: string): Promise<boolean> => {
+        try {
+            const res = await fetch(API_ENDPOINTS.REQUEST_RESET, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: targetEmail }),
+            });
+            return res.ok;
+        } catch {
+            return false;
+        }
+    };
+
+    const handleInviteAdmin = async () => {
+        if (!inviteFirstName.trim() || !inviteLastName.trim() || !inviteEmail.trim() || !invitePhone.trim()) {
+            showToast('Please fill first name, last name, email, and phone');
+            return;
+        }
+
+        setInvitingAdmin(true);
+        try {
+            const emailNormalized = inviteEmail.trim().toLowerCase();
+            const res = await fetch('/api/proxy/staff', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    first_name: inviteFirstName.trim(),
+                    last_name: inviteLastName.trim(),
+                    email: inviteEmail.trim(),
+                    phone: invitePhone.trim(),
+                    job_title: inviteJobTitle.trim() || 'Administrator',
+                    role: 'admin',
+                }),
+            });
+
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 409) {
+                const lookupParams = new URLSearchParams({
+                    page_size: '100',
+                    page_id: '1',
+                    search: inviteEmail.trim(),
+                });
+                const lookupRes = await fetch(`/api/proxy/staff?${lookupParams.toString()}`);
+                if (lookupRes.ok) {
+                    const lookupRaw = await lookupRes.json();
+                    const existing = parseStaffLite(lookupRaw)
+                        .find((s) => s.email.trim().toLowerCase() === emailNormalized);
+
+                    if (existing) {
+                        if (isAdminLikeRole(existing.role)) {
+                            const resetSent = await sendPasswordResetEmail(inviteEmail.trim());
+                            showToast(
+                                resetSent
+                                    ? `${inviteEmail} is already an admin. Password reset email sent.`
+                                    : `${inviteEmail} is already an admin`
+                            );
+                            return;
+                        }
+
+                        const promoteRes = await fetch(`/api/proxy/staff/${existing.id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                first_name: inviteFirstName.trim() || existing.first_name,
+                                last_name: inviteLastName.trim() || existing.last_name,
+                                email: inviteEmail.trim(),
+                                phone: invitePhone.trim() || existing.phone,
+                                job_title: inviteJobTitle.trim() || existing.job_title || 'Administrator',
+                                role: 'admin',
+                                status: existing.status || 'active',
+                            }),
+                        });
+                        const promoteData = await promoteRes.json().catch(() => ({}));
+                        if (!promoteRes.ok) {
+                            showToast(String(promoteData?.message || promoteData?.detail || 'Failed to promote existing staff to admin'));
+                            return;
+                        }
+
+                        const resetSent = await sendPasswordResetEmail(inviteEmail.trim());
+                        showToast(
+                            resetSent
+                                ? `${inviteEmail} promoted to admin. Password reset email sent.`
+                                : `${inviteEmail} promoted to admin`
+                        );
+                        setInviteFirstName('');
+                        setInviteLastName('');
+                        setInviteEmail('');
+                        setInvitePhone('');
+                        setInviteJobTitle('Administrator');
+                        setShowInvite(false);
+                        await loadSecurityData();
+                        return;
+                    }
+                }
+
+                showToast(String(data?.message || data?.detail || 'Staff with this email already exists'));
+                return;
+            }
+            if (!res.ok) {
+                showToast(String(data?.message || data?.detail || 'Failed to invite admin'));
+                return;
+            }
+
+            showToast(`Invite sent to ${inviteEmail}`);
+            setInviteFirstName('');
+            setInviteLastName('');
+            setInviteEmail('');
+            setInvitePhone('');
+            setInviteJobTitle('Administrator');
+            setShowInvite(false);
+            await loadSecurityData();
+        } catch {
+            showToast('Failed to invite admin');
+        } finally {
+            setInvitingAdmin(false);
+        }
+    };
 
     const tabs = [
         { id: 'profile' as const, label: 'Profile', icon: 'person' },
@@ -58,7 +478,9 @@ export default function SettingsPage() {
         { id: 'admins' as const, label: 'Admin Users', icon: 'admin_panel_settings' },
     ];
 
-    const initials = fullName.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+    const displayName = fullName.trim() || 'User';
+    const initials = displayName.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+    const visibleSessions = useMemo(() => sessions, [sessions]);
 
     return (
         <div className="app-shell">
@@ -113,8 +535,8 @@ export default function SettingsPage() {
                                         {initials}
                                     </div>
                                     <div style={{ flex: 1 }}>
-                                        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 2 }}>{fullName}</h3>
-                                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{jobTitle} · Super Admin</p>
+                                        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 2 }}>{displayName}</h3>
+                                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{jobTitle || 'No title'} · {userRole}</p>
                                     </div>
                                     <button className="btn btn-secondary btn-sm" onClick={() => showToast('Photo upload coming soon')}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>add_a_photo</span>
@@ -182,7 +604,13 @@ export default function SettingsPage() {
                     {activeTab === 'security' && (
                         <div className="fade-in" style={{ maxWidth: 600 }}>
                             <div className="card" style={{ marginBottom: 16 }}>
-                                <h3 style={{ marginBottom: 16 }}>Two-Factor Authentication</h3>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                                    <h3>Two-Factor Authentication</h3>
+                                    <button className="btn btn-danger btn-xs" onClick={handleLogout}>
+                                        <span className="material-icons-round" style={{ fontSize: 12 }}>logout</span>
+                                        Logout
+                                    </button>
+                                </div>
                                 <div style={{
                                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                                     padding: '12px 14px', borderRadius: 'var(--radius-md)',
@@ -199,7 +627,7 @@ export default function SettingsPage() {
                                         </div>
                                     </div>
                                     <label className="toggle">
-                                        <input type="checkbox" checked={twoFactor} onChange={() => { setTwoFactor(!twoFactor); showToast(twoFactor ? '2FA disabled' : '2FA enabled'); }} />
+                                        <input type="checkbox" checked={twoFactor} onChange={toggleTwoFactor} />
                                         <span className="toggle-slider" />
                                     </label>
                                 </div>
@@ -217,20 +645,21 @@ export default function SettingsPage() {
                                         <option value="never">Never</option>
                                     </select>
                                 </div>
-                                <button className="btn btn-primary btn-sm" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }} onClick={() => showToast('Session settings saved')}>
+                                <button className="btn btn-primary btn-sm" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }} onClick={saveSessionSettings} disabled={savingSecurity}>
                                     <span className="material-icons-round" style={{ fontSize: 14 }}>save</span>
-                                    Save Security Settings
+                                    {savingSecurity ? 'Saving...' : 'Save Security Settings'}
                                 </button>
                             </div>
 
                             <div className="card">
                                 <h3 style={{ marginBottom: 16 }}>Active Sessions</h3>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    {[
-                                        { device: 'Chrome on macOS', location: 'Accra, Ghana', time: 'Current session', current: true },
-                                        { device: 'Safari on iPhone', location: 'Accra, Ghana', time: '2 hours ago', current: false },
-                                    ].map((s, i) => (
-                                        <div key={i} style={{
+                                    {loadingSecurity ? (
+                                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading sessions...</div>
+                                    ) : visibleSessions.length === 0 ? (
+                                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No active sessions found</div>
+                                    ) : visibleSessions.map((s) => (
+                                        <div key={s.id} style={{
                                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                                             padding: '10px 12px', borderRadius: 'var(--radius-md)',
                                             background: s.current ? 'rgba(59,130,246,0.06)' : 'var(--surface-2)',
@@ -249,7 +678,7 @@ export default function SettingsPage() {
                                                 </div>
                                             </div>
                                             {!s.current && (
-                                                <button className="btn btn-danger btn-xs" onClick={() => showToast('Session revoked')}>Revoke</button>
+                                                <button className="btn btn-danger btn-xs" onClick={() => revokeSession(s.id)}>Revoke</button>
                                             )}
                                         </div>
                                     ))}
@@ -275,31 +704,59 @@ export default function SettingsPage() {
 
                                 {showInvite && (
                                     <div style={{
-                                        display: 'flex', gap: 8, marginBottom: 16, padding: 14,
+                                        display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16, padding: 14,
                                         background: 'var(--surface-2)', borderRadius: 'var(--radius-md)',
                                         border: '1px solid var(--border-default)',
                                     }}>
-                                        <input
-                                            className="input"
-                                            placeholder="Email address"
-                                            value={inviteEmail}
-                                            onChange={e => setInviteEmail(e.target.value)}
-                                            style={{ fontSize: 12, flex: 1 }}
-                                        />
-                                        <select
-                                            className="input"
-                                            value={inviteRole}
-                                            onChange={e => setInviteRole(e.target.value as Admin['role'])}
-                                            style={{ fontSize: 12, width: 140 }}
-                                        >
-                                            <option value="Admin">Admin</option>
-                                            <option value="Editor">Editor</option>
-                                            <option value="Viewer">Viewer</option>
-                                        </select>
-                                        <button className="btn btn-primary btn-sm" onClick={() => { showToast(`Invite sent to ${inviteEmail}`); setInviteEmail(''); setShowInvite(false); }} disabled={!inviteEmail.trim()}>
-                                            <span className="material-icons-round" style={{ fontSize: 14 }}>send</span>
-                                            Send Invite
-                                        </button>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                            <input
+                                                className="input"
+                                                placeholder="First name"
+                                                value={inviteFirstName}
+                                                onChange={e => setInviteFirstName(e.target.value)}
+                                                style={{ fontSize: 12 }}
+                                            />
+                                            <input
+                                                className="input"
+                                                placeholder="Last name"
+                                                value={inviteLastName}
+                                                onChange={e => setInviteLastName(e.target.value)}
+                                                style={{ fontSize: 12 }}
+                                            />
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                            <input
+                                                className="input"
+                                                placeholder="Email address"
+                                                value={inviteEmail}
+                                                onChange={e => setInviteEmail(e.target.value)}
+                                                style={{ fontSize: 12 }}
+                                            />
+                                            <input
+                                                className="input"
+                                                placeholder="Phone number"
+                                                value={invitePhone}
+                                                onChange={e => setInvitePhone(e.target.value)}
+                                                style={{ fontSize: 12 }}
+                                            />
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
+                                            <input
+                                                className="input"
+                                                placeholder="Job title (e.g., Hospital Administrator)"
+                                                value={inviteJobTitle}
+                                                onChange={e => setInviteJobTitle(e.target.value)}
+                                                style={{ fontSize: 12 }}
+                                            />
+                                            <button
+                                                className="btn btn-primary btn-sm"
+                                                onClick={handleInviteAdmin}
+                                                disabled={invitingAdmin || !inviteFirstName.trim() || !inviteLastName.trim() || !inviteEmail.trim() || !invitePhone.trim()}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>send</span>
+                                                {invitingAdmin ? 'Sending...' : 'Send Invite'}
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
 
@@ -314,9 +771,21 @@ export default function SettingsPage() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {admins.map(admin => {
+                                        {loadingAdmins ? (
+                                            <tr>
+                                                <td colSpan={5} style={{ padding: '16px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+                                                    Loading facility admins...
+                                                </td>
+                                            </tr>
+                                        ) : admins.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={5} style={{ padding: '16px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+                                                    No facility admins found
+                                                </td>
+                                            </tr>
+                                        ) : admins.map(admin => {
                                             const adminInitials = admin.name.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
-                                            const isSelf = admin.id === '1';
+                                            const isSelf = currentUserId !== '' && admin.id === currentUserId;
                                             return (
                                                 <tr key={admin.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                                                     <td style={{ padding: '12px 12px' }}>

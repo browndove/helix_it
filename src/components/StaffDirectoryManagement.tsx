@@ -88,7 +88,6 @@ export default function StaffDirectoryManagement() {
     const [newRole, setNewRole] = useState('');
     const [newDept, setNewDept] = useState('Cardiology');
     const [newPatientAccess, setNewPatientAccess] = useState(true);
-    const [newEmpId, setNewEmpId] = useState('');
     const [sortKey, setSortKey] = useState<SortKey>('last_name');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const [statusFilter, setStatusFilter] = useState('all');
@@ -139,7 +138,7 @@ export default function StaffDirectoryManagement() {
     });
 
     const handleAdd = async () => {
-        if (!newFirstName.trim() || !newLastName.trim() || !newEmail.trim() || !newEmpId.trim()) return;
+        if (!newFirstName.trim() || !newLastName.trim() || !newEmail.trim()) return;
         setAdding(true);
         try {
             const res = await fetch('/api/proxy/staff', {
@@ -172,7 +171,7 @@ export default function StaffDirectoryManagement() {
                 dept: newDept,
                 status: 'active',
                 access: 'Staff',
-                employee_id: newEmpId.trim(),
+                employee_id: '',
                 patient_access: newPatientAccess,
             };
 
@@ -183,7 +182,6 @@ export default function StaffDirectoryManagement() {
             setNewEmail('');
             setNewPhone('');
             setNewRole('');
-            setNewEmpId('');
             setNewPatientAccess(true);
             showToast(`${newFirstName} ${newLastName} added to staff`);
         } catch {
@@ -282,8 +280,7 @@ export default function StaffDirectoryManagement() {
                     {showAddForm && (
                         <div className="fade-in card" style={{ marginBottom: 18, padding: '18px 20px' }}>
                             <h3 style={{ fontSize: 14, marginBottom: 12 }}>New Staff Member</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 1fr 1fr 1.2fr 1fr 1fr 1fr 0.8fr', gap: 12, marginBottom: 14 }}>
-                                <div><label className="label">Employee ID *</label><input className="input" value={newEmpId} onChange={e => setNewEmpId(e.target.value)} placeholder="e.g. AMC-0400" style={{ fontSize: 12 }} /></div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr 1fr 1fr 1fr 0.8fr', gap: 12, marginBottom: 14 }}>
                                 <div><label className="label">First Name *</label><input className="input" value={newFirstName} onChange={e => setNewFirstName(e.target.value)} placeholder="First name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Last Name *</label><input className="input" value={newLastName} onChange={e => setNewLastName(e.target.value)} placeholder="Last name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Email *</label><input className="input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email address" style={{ fontSize: 12 }} /></div>
@@ -292,7 +289,7 @@ export default function StaffDirectoryManagement() {
                                 <div><label className="label">Department</label><select className="input" value={newDept} onChange={e => setNewDept(e.target.value)} style={{ fontSize: 12 }}>{['Cardiology', 'ICU', 'Emergency', 'Pediatrics', 'Internal Med', 'Radiology', 'Surgery'].map(d => <option key={d}>{d}</option>)}</select></div>
                                 <div><label className="label">Patient Access</label><select className="input" value={newPatientAccess ? 'yes' : 'no'} onChange={e => setNewPatientAccess(e.target.value === 'yes')} style={{ fontSize: 12 }}><option value="yes">Yes</option><option value="no">No</option></select></div>
                             </div>
-                            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding || !newFirstName.trim() || !newLastName.trim() || !newEmail.trim() || !newEmpId.trim()}>
+                            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding || !newFirstName.trim() || !newLastName.trim() || !newEmail.trim()}>
                                 <span className="material-icons-round" style={{ fontSize: 14 }}>{adding ? 'hourglass_empty' : 'person_add'}</span>{adding ? 'Adding...' : 'Add Staff'}
                             </button>
                         </div>
