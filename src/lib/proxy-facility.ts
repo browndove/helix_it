@@ -7,6 +7,12 @@ type FacilityLike = {
 };
 
 function extractFacilityId(data: unknown): string | undefined {
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+        const wrapped = data as { items?: unknown; data?: unknown; facilities?: unknown; results?: unknown };
+        const nested = wrapped.items || wrapped.data || wrapped.facilities || wrapped.results;
+        if (nested !== undefined) return extractFacilityId(nested);
+    }
+
     if (Array.isArray(data)) {
         const first = data[0] as FacilityLike | undefined;
         return first?.id || first?.facility_id;

@@ -9,11 +9,22 @@ export default function SetupAccountForm({ token }: { token: string }) {
     const [phone, setPhone] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [prefillLoading, setPrefillLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [completed, setCompleted] = useState(false);
+
+    const passwordChecks = [
+        { id: 'length', label: 'At least 8 characters', met: password.length >= 8 },
+        { id: 'upper', label: 'At least one uppercase letter (A-Z)', met: /[A-Z]/.test(password) },
+        { id: 'lower', label: 'At least one lowercase letter (a-z)', met: /[a-z]/.test(password) },
+        { id: 'digit', label: 'At least one number (0-9)', met: /[0-9]/.test(password) },
+        { id: 'special', label: 'At least one special character (e.g. !@#$%^&*)', met: /[^A-Za-z0-9]/.test(password) },
+    ];
+    const passwordIsValid = passwordChecks.every(check => check.met);
 
     useEffect(() => {
         if (!token) return;
@@ -52,8 +63,8 @@ export default function SetupAccountForm({ token }: { token: string }) {
             setError('Please fill all required fields.');
             return;
         }
-        if (password.length < 8) {
-            setError('Password must be at least 8 characters.');
+        if (!passwordIsValid) {
+            setError('Password does not meet all requirements.');
             return;
         }
         if (password !== confirmPassword) {
@@ -157,12 +168,93 @@ export default function SetupAccountForm({ token }: { token: string }) {
 
                             <div style={{ marginTop: 10 }}>
                                 <label className="label">Password *</label>
-                                <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 8 characters" />
+                                <div style={{ position: 'relative' }}>
+                                    <input
+                                        className="input"
+                                        type={showPassword ? 'text' : 'password'}
+                                        value={password}
+                                        onChange={e => setPassword(e.target.value)}
+                                        placeholder="At least 8 characters"
+                                        style={{ paddingRight: 42 }}
+                                    />
+                                    <button
+                                        type="button"
+                                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                        onClick={() => setShowPassword(prev => !prev)}
+                                        style={{
+                                            position: 'absolute',
+                                            right: 10,
+                                            top: '50%',
+                                            transform: 'translateY(-50%)',
+                                            border: 'none',
+                                            background: 'transparent',
+                                            color: 'var(--text-muted)',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            padding: 0,
+                                        }}
+                                    >
+                                        <span className="material-icons-round" style={{ fontSize: 18 }}>
+                                            {showPassword ? 'visibility_off' : 'visibility'}
+                                        </span>
+                                    </button>
+                                </div>
+                                <div style={{ marginTop: 8, display: 'grid', gap: 5 }}>
+                                    {passwordChecks.map(check => (
+                                        <div
+                                            key={check.id}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 7,
+                                                fontSize: 12,
+                                                color: check.met ? 'var(--success)' : 'var(--text-disabled)',
+                                            }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 15 }}>
+                                                {check.met ? 'check_circle' : 'radio_button_unchecked'}
+                                            </span>
+                                            <span>{check.label}</span>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
 
                             <div style={{ marginTop: 10 }}>
                                 <label className="label">Confirm Password *</label>
-                                <input className="input" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Re-enter password" />
+                                <div style={{ position: 'relative' }}>
+                                    <input
+                                        className="input"
+                                        type={showConfirmPassword ? 'text' : 'password'}
+                                        value={confirmPassword}
+                                        onChange={e => setConfirmPassword(e.target.value)}
+                                        placeholder="Re-enter password"
+                                        style={{ paddingRight: 42 }}
+                                    />
+                                    <button
+                                        type="button"
+                                        aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                                        onClick={() => setShowConfirmPassword(prev => !prev)}
+                                        style={{
+                                            position: 'absolute',
+                                            right: 10,
+                                            top: '50%',
+                                            transform: 'translateY(-50%)',
+                                            border: 'none',
+                                            background: 'transparent',
+                                            color: 'var(--text-muted)',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            padding: 0,
+                                        }}
+                                    >
+                                        <span className="material-icons-round" style={{ fontSize: 18 }}>
+                                            {showConfirmPassword ? 'visibility_off' : 'visibility'}
+                                        </span>
+                                    </button>
+                                </div>
                             </div>
 
                             <button

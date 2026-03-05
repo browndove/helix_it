@@ -19,6 +19,7 @@ type LogEntry = {
     actionRaw: string;
     entityTypeRaw: string;
     userId: string;
+    targetId: string;
 };
 
 const entityTypes = ['All', 'staff', 'patient', 'role', 'department', 'facility'];
@@ -28,6 +29,147 @@ function prettify(value: string): string {
     return value
         .replace(/_/g, ' ')
         .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> | null {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+    if (typeof value !== 'string') return null;
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? parsed as Record<string, unknown>
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+function looksLikeIdentifier(value: string): boolean {
+    const v = value.trim();
+    if (!v) return false;
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)) return true;
+    if (/^[0-9a-f]{24}$/i.test(v)) return true;
+    if (/^\d{6,}$/.test(v)) return true;
+    if (/^(staff|user|role|dept|department|facility|patient|team|policy|session|log)[-_][A-Za-z0-9]+$/i.test(v)) return true;
+    return !/\s/.test(v) && /^[A-Za-z0-9_-]{18,}$/.test(v) && /\d/.test(v);
+}
+
+function asCleanString(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : '';
+}
+
+function getHumanLabel(value: unknown): string {
+    const s = asCleanString(value);
+    return s && !looksLikeIdentifier(s) ? s : '';
+}
+
+function extractNameFromObject(raw: unknown): string {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return '';
+    const rec = raw as Record<string, unknown>;
+
+    const direct = [
+        rec.target_name,
+        rec.entity_name,
+        rec.resource_name,
+        rec.object_name,
+        rec.display_name,
+        rec.full_name,
+        rec.name,
+        rec.title,
+        rec.role_name,
+        rec.department_name,
+        rec.patient_name,
+        rec.staff_name,
+    ]
+        .map(getHumanLabel)
+        .find(Boolean);
+    if (direct) return direct;
+
+    const first = asCleanString(rec.first_name);
+    const last = asCleanString(rec.last_name);
+    const combined = [first, last].filter(Boolean).join(' ').trim();
+    if (combined) return combined;
+
+    return '';
+}
+
+function extractTargetIdFromRecord(rec: Record<string, unknown>, detailsObj: Record<string, unknown> | null): string {
+    const targetObj = rec.target && typeof rec.target === 'object' && !Array.isArray(rec.target)
+        ? rec.target as Record<string, unknown>
+        : null;
+    const entityObj = rec.entity && typeof rec.entity === 'object' && !Array.isArray(rec.entity)
+        ? rec.entity as Record<string, unknown>
+        : null;
+    const resourceObj = rec.resource && typeof rec.resource === 'object' && !Array.isArray(rec.resource)
+        ? rec.resource as Record<string, unknown>
+        : null;
+    const objectObj = rec.object && typeof rec.object === 'object' && !Array.isArray(rec.object)
+        ? rec.object as Record<string, unknown>
+        : null;
+
+    const candidates = [
+        rec.entity_id,
+        rec.target_id,
+        rec.resource_id,
+        rec.object_id,
+        rec.subject_id,
+        targetObj?.id,
+        entityObj?.id,
+        resourceObj?.id,
+        objectObj?.id,
+        detailsObj?.entity_id,
+        detailsObj?.target_id,
+        detailsObj?.resource_id,
+        detailsObj?.object_id,
+        detailsObj?.subject_id,
+    ]
+        .map(asCleanString)
+        .find(Boolean);
+
+    return candidates || '';
+}
+
+function resolveTargetLabel(rec: Record<string, unknown>, entityRaw: string): { label: string; targetId: string } {
+    const detailsObj = parseJsonObject(rec.details)
+        || parseJsonObject(rec.description)
+        || parseJsonObject(rec.message)
+        || parseJsonObject(rec.metadata)
+        || parseJsonObject(rec.meta);
+
+    const targetObj = rec.target && typeof rec.target === 'object' && !Array.isArray(rec.target)
+        ? rec.target as Record<string, unknown>
+        : null;
+    const entityObj = rec.entity && typeof rec.entity === 'object' && !Array.isArray(rec.entity)
+        ? rec.entity as Record<string, unknown>
+        : null;
+    const resourceObj = rec.resource && typeof rec.resource === 'object' && !Array.isArray(rec.resource)
+        ? rec.resource as Record<string, unknown>
+        : null;
+    const objectObj = rec.object && typeof rec.object === 'object' && !Array.isArray(rec.object)
+        ? rec.object as Record<string, unknown>
+        : null;
+
+    const label = [
+        getHumanLabel(rec.target_name),
+        getHumanLabel(rec.entity_name),
+        getHumanLabel(rec.resource_name),
+        getHumanLabel(rec.object_name),
+        getHumanLabel(rec.target),
+        getHumanLabel(rec.entity),
+        getHumanLabel(rec.resource),
+        getHumanLabel(rec.object),
+        extractNameFromObject(targetObj),
+        extractNameFromObject(entityObj),
+        extractNameFromObject(resourceObj),
+        extractNameFromObject(objectObj),
+        extractNameFromObject(detailsObj),
+    ].find(Boolean) || '';
+
+    const targetId = extractTargetIdFromRecord(rec, detailsObj);
+
+    if (label) return { label, targetId };
+    if (targetId) return { label: targetId, targetId };
+    return { label: prettify(entityRaw), targetId: '' };
 }
 
 function parseAuditPayload(raw: unknown): { logs: LogEntry[]; total: number } {
@@ -47,10 +189,10 @@ function parseAuditPayload(raw: unknown): { logs: LogEntry[]; total: number } {
         const firstName = String(rec.first_name || actor.first_name || 'System');
         const lastName = String(rec.last_name || actor.last_name || '');
         const ts = String(rec.timestamp || rec.created_at || new Date().toISOString());
-        const target = String(rec.target_name || rec.entity_name || rec.entity_id || entityRaw);
         const details = String(rec.details || rec.description || rec.message || '');
         const ip = String(rec.ip || rec.ip_address || '-');
         const userId = String(rec.user_id || actor.id || '');
+        const targetInfo = resolveTargetLabel(rec, entityRaw);
 
         return {
             id: String(rec.id || `log-${idx}-${ts}`),
@@ -58,13 +200,14 @@ function parseAuditPayload(raw: unknown): { logs: LogEntry[]; total: number } {
             category: prettify(entityRaw),
             firstName,
             lastName,
-            target,
+            target: targetInfo.label,
             details,
             timestamp: ts,
             ip,
             actionRaw,
             entityTypeRaw: entityRaw,
             userId,
+            targetId: targetInfo.targetId,
         };
     });
 
@@ -173,6 +316,7 @@ export default function AuditLogPage() {
                 l.lastName.toLowerCase().includes(q) ||
                 `${l.firstName} ${l.lastName}`.toLowerCase().includes(q) ||
                 l.target.toLowerCase().includes(q) ||
+                l.targetId.toLowerCase().includes(q) ||
                 l.action.toLowerCase().includes(q) ||
                 l.details.toLowerCase().includes(q)
             );
@@ -337,6 +481,9 @@ export default function AuditLogPage() {
                                                 </td>
                                                 <td style={{ padding: '10px 12px' }}>
                                                     <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{log.target}</div>
+                                                    {isExpanded && log.targetId && log.targetId !== log.target && (
+                                                        <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 2 }}>ID: {log.targetId}</div>
+                                                    )}
                                                 </td>
                                                 <td style={{ padding: '10px 12px' }}>
                                                     <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }} title={formatFullTime(log.timestamp)}>{formatTime(log.timestamp)}</div>

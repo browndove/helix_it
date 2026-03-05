@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
@@ -21,14 +21,42 @@ type StaffMember = {
 type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status';
 
 
+function looksLikeStaffRecord(value: unknown): boolean {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const rec = value as Record<string, unknown>;
+    const keys = ['id', 'staff_id', 'first_name', 'last_name', 'name', 'email', 'job_title', 'role', 'department', 'department_name'];
+    return keys.some(k => rec[k] !== undefined && rec[k] !== null && String(rec[k]).trim() !== '');
+}
+
+function extractStaffArray(raw: unknown): unknown[] {
+    if (Array.isArray(raw)) return raw;
+    if (!raw || typeof raw !== 'object') return [];
+
+    const obj = raw as Record<string, unknown>;
+    const preferredKeys = ['items', 'data', 'staff', 'results', 'rows', 'records', 'users', 'members'];
+    for (const key of preferredKeys) {
+        const value = obj[key];
+        if (Array.isArray(value)) return value;
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            const nested = value as Record<string, unknown>;
+            for (const nestedKey of preferredKeys) {
+                const nestedValue = nested[nestedKey];
+                if (Array.isArray(nestedValue)) return nestedValue;
+            }
+        }
+    }
+
+    // Final fallback: first array that looks like staff records.
+    for (const value of Object.values(obj)) {
+        if (!Array.isArray(value) || value.length === 0) continue;
+        if (value.some(looksLikeStaffRecord)) return value;
+    }
+
+    return [];
+}
+
 function parseStaffList(raw: unknown): StaffMember[] {
-    const list = Array.isArray(raw)
-        ? raw
-        : (raw && typeof raw === 'object'
-            ? ((raw as { items?: unknown; data?: unknown; staff?: unknown }).items
-                || (raw as { items?: unknown; data?: unknown; staff?: unknown }).data
-                || (raw as { items?: unknown; data?: unknown; staff?: unknown }).staff)
-            : []);
+    const list = extractStaffArray(raw);
     if (!Array.isArray(list)) return [];
 
     return list
@@ -43,6 +71,10 @@ function parseStaffList(raw: unknown): StaffMember[] {
             const firstName = first || fullFirst || 'Unknown';
             const lastName = last || fullLast || 'Staff';
             const id = String(r.id || r.staff_id || `staff-${idx}`);
+            const statusRaw = String(r.status || r.account_status || 'active').toLowerCase();
+            const normalizedStatus = statusRaw.includes('disable') || statusRaw.includes('inactive') || statusRaw.includes('suspend')
+                ? 'disabled'
+                : 'active';
             return {
                 id,
                 first_name: firstName,
@@ -50,7 +82,7 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 email: String(r.email || ''),
                 job_title: String(r.job_title || r.role || 'Staff'),
                 dept: String(r.department_name || r.department || r.dept || 'Unassigned'),
-                status: String(r.status || 'active').toLowerCase(),
+                status: normalizedStatus,
                 access: String(r.system_role || r.access || 'Staff'),
                 employee_id: String(r.employee_id || r.username || id),
                 patient_access: Boolean(r.patient_access ?? r.can_access_patients ?? false),
@@ -96,6 +128,7 @@ export default function StaffDirectoryManagement() {
     const [bulkHistory, setBulkHistory] = useState(importHistory);
     const [processing, setProcessing] = useState(false);
     const [adding, setAdding] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
@@ -156,7 +189,8 @@ export default function StaffDirectoryManagement() {
             });
 
             if (!res.ok) {
-                showToast('Failed to add staff');
+                const err = await res.json().catch(() => ({} as { message?: string; detail?: string; error?: string }));
+                showToast(String(err.message || err.detail || err.error || 'Failed to add staff'));
                 return;
             }
 
@@ -482,11 +516,21 @@ export default function StaffDirectoryManagement() {
                     <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.6fr', gap: 20, marginBottom: 24 }}>
                         <div className="fade-in delay-1 card">
                             <h3 style={{ marginBottom: 14 }}>Upload Staff File</h3>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept=".csv,.xlsx,.xls"
+                                style={{ display: 'none' }}
+                                onChange={e => {
+                                    const file = e.target.files?.[0];
+                                    if (file) setUploadedFile(file.name);
+                                }}
+                            />
                             <div
                                 onDragOver={e => { e.preventDefault(); setDragOver(true); }}
                                 onDragLeave={() => setDragOver(false)}
                                 onDrop={e => { e.preventDefault(); setDragOver(false); setUploadedFile(e.dataTransfer.files[0]?.name || null); }}
-                                onClick={() => setUploadedFile('staff_q4_import.csv')}
+                                onClick={() => fileInputRef.current?.click()}
                                 style={{ border: `2px dashed ${dragOver ? 'var(--helix-primary)' : 'var(--border-default)'}`, borderRadius: 'var(--radius-lg)', padding: '40px 20px', textAlign: 'center', cursor: 'pointer', background: dragOver ? 'rgba(30,58,95,0.05)' : 'var(--surface-2)', transition: 'all 0.2s' }}>
                                 <div style={{ width: 52, height: 52, background: uploadedFile ? 'var(--success-bg)' : 'rgba(30,58,95,0.1)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
                                     <span className="material-icons-round" style={{ fontSize: 26, color: uploadedFile ? 'var(--success)' : 'var(--helix-primary-light)' }}>{uploadedFile ? 'check_circle' : 'cloud_upload'}</span>
@@ -518,7 +562,6 @@ export default function StaffDirectoryManagement() {
                             <h3 style={{ marginBottom: 14 }}>Download Template</h3>
                             {[
                                 { icon: 'badge', label: 'Staff Template', desc: 'Name, Role, Dept, Email, Shift', color: '#4a6fa5' },
-                                { icon: 'calendar_month', label: 'Schedule Template', desc: 'Shifts, assignments, rotations', color: '#5c8a6e' },
                             ].map(t => (
                                 <div key={t.label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', marginBottom: 8, cursor: 'pointer', background: 'var(--surface-2)' }}>
                                     <div style={{ width: 36, height: 36, borderRadius: 9, background: `${t.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
