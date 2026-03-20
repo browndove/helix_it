@@ -85,7 +85,7 @@ const escalationTemplates: EscalationTemplate[] = [
     { name: 'Missing Child', description: 'Escalation chain for missing child incidents.', roleNames: ['Ward Nurse In-Charge', 'Safety Officer', 'Administrator On-Call'] },
 ];
 
-const delayOptions = ['0 min', '1 min', '2 min', '3 min', '5 min', '7 min', '10 min', '12 min', '15 min', '20 min', '30 min'];
+const delayOptions = ['30 sec', '45 sec', '0 min', '1 min', '2 min', '3 min', '5 min', '7 min', '10 min', '12 min', '15 min', '20 min', '30 min', '1 hr', '2 hr'];
 
 const levelColor = (i: number) => {
     if (i === 0) return '#6bb89c';
@@ -94,13 +94,22 @@ const levelColor = (i: number) => {
 };
 
 function secondsToDelay(s: number): string {
-    const mins = Math.round(s / 60);
-    return `${mins} min`;
+    if (s <= 0) return '0 min';
+    if (s < 60) return `${s} sec`;
+    if (s % 3600 === 0) return `${s / 3600} hr`;
+    return `${Math.round(s / 60)} min`;
 }
 
 function delayToSeconds(d: string): number {
-    const match = d.match(/(\d+)/);
-    return match ? parseInt(match[1]) * 60 : 0;
+    const raw = d.trim().toLowerCase();
+    const match = raw.match(/(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)?/);
+    if (!match) return 0;
+    const value = Number(match[1]);
+    const unit = match[2] || 'm';
+    if (!Number.isFinite(value)) return 0;
+    if (unit.startsWith('h')) return Math.round(value * 3600);
+    if (unit === 's' || unit.startsWith('sec')) return Math.round(value);
+    return Math.round(value * 60);
 }
 
 function stepsToLevels(steps: EscalationStep[], roleNameMap?: Map<string, string>): EscalationLevel[] {
@@ -247,12 +256,8 @@ export default function EscalationAlertSettings() {
             const role = roleMap.get(p.role_id);
             const levels = stepsToLevels(p.steps || [], roleNameMap);
             const targetNames = levels.map(l => l.target).filter(Boolean);
-            const matchedTemplate = escalationTemplates.find(t =>
-                t.roleNames.length === targetNames.length &&
-                t.roleNames.every((name, idx) => name === targetNames[idx])
-            );
-            const chainName = matchedTemplate?.name || role?.name || targetNames.join(' \u2192 ') || 'Unnamed Policy';
-            const description = matchedTemplate?.description || role?.description || `${levels.length} step escalation chain`;
+            const chainName = role?.name || targetNames.join(' \u2192 ') || 'Unnamed Policy';
+            const description = role?.description || `${levels.length} step escalation chain`;
             return {
                 key: p.id,
                 chainName,
@@ -526,6 +531,8 @@ export default function EscalationAlertSettings() {
                                         placeholder="Delay"
                                         style={{ width: 100 }}
                                         maxH={160}
+                                        allowCustom
+                                        customPlaceholder="e.g. 45 sec, 2 min, 1 hr"
                                     />
                                 </div>
                             </div>

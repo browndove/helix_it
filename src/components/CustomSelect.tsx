@@ -9,8 +9,19 @@ interface Props {
     placeholder?: string;
     style?: React.CSSProperties;
     maxH?: number;
+    allowCustom?: boolean;
+    customPlaceholder?: string;
 }
-export default function CustomSelect({ value, onChange, options, placeholder = '-- Select --', style, maxH = 200 }: Props) {
+export default function CustomSelect({
+    value,
+    onChange,
+    options,
+    placeholder = '-- Select --',
+    style,
+    maxH = 200,
+    allowCustom = false,
+    customPlaceholder = 'Type custom value and press Enter',
+}: Props) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState('');
     const [pos, setPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
@@ -45,6 +56,12 @@ export default function CustomSelect({ value, onChange, options, placeholder = '
 
     const sel = options.find(o => o.value === value);
     const list = q ? options.filter(o => o.label.toLowerCase().includes(q.toLowerCase())) : options;
+    const commitCustom = () => {
+        const next = q.trim();
+        if (!allowCustom || !next) return;
+        onChange(next);
+        close();
+    };
     const btnStyle: React.CSSProperties = {
         width: '100%', height: 36, padding: '0 10px', fontSize: 13, textAlign: 'left',
         background: 'var(--surface-card,#fff)', border: '1px solid var(--border-default,#d1d5db)',
@@ -60,9 +77,20 @@ export default function CustomSelect({ value, onChange, options, placeholder = '
             borderRadius: 'var(--radius-md,6px)', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
             zIndex: 99999, overflow: 'hidden',
         }}>
-            {options.length > 6 && (
+            {(options.length > 6 || allowCustom) && (
                 <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-subtle,#e5e7eb)' }}>
-                    <input type="text" value={q} onChange={e => setQ(e.target.value)} placeholder="Search..." autoFocus
+                    <input
+                        type="text"
+                        value={q}
+                        onChange={e => setQ(e.target.value)}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                commitCustom();
+                            }
+                        }}
+                        placeholder={allowCustom ? customPlaceholder : 'Search...'}
+                        autoFocus
                         style={{ width: '100%', height: 28, padding: '0 8px', fontSize: 12, border: '1px solid var(--border-subtle,#e5e7eb)', borderRadius: 4, background: 'var(--surface-2,#f9fafb)', outline: 'none', color: 'var(--text-primary,#111)' }} />
                 </div>
             )}
@@ -76,6 +104,26 @@ export default function CustomSelect({ value, onChange, options, placeholder = '
                         {o.value === value && <span style={{ marginRight: 6, fontSize: 12 }}>✓</span>}{o.label}
                     </button>
                 ))}
+                {allowCustom && q.trim() && !options.some(o => o.value.toLowerCase() === q.trim().toLowerCase()) && (
+                    <button
+                        type="button"
+                        onClick={commitCustom}
+                        style={{
+                            width: '100%',
+                            padding: '7px 12px',
+                            fontSize: 13,
+                            textAlign: 'left',
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: 'var(--helix-primary,#6366f1)',
+                            fontWeight: 600,
+                            borderTop: '1px solid var(--border-subtle,#e5e7eb)',
+                        }}
+                    >
+                        Use "{q.trim()}"
+                    </button>
+                )}
             </div>
         </div>,
         document.body
@@ -84,7 +132,9 @@ export default function CustomSelect({ value, onChange, options, placeholder = '
     return (
         <div style={{ position: 'relative', ...style }}>
             <button ref={btnRef} type="button" onClick={() => { if (!open) updatePos(); setOpen(p => !p); }} style={btnStyle}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{sel ? sel.label : placeholder}</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    {sel ? sel.label : (value || placeholder)}
+                </span>
                 <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)', marginLeft: 4, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>expand_more</span>
             </button>
             {dropdown}

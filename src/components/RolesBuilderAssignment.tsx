@@ -35,13 +35,21 @@ type Policy = {
 };
 
 function delayToSeconds(d: string): number {
-    const match = d.match(/(\d+)/);
-    return match ? parseInt(match[1]) * 60 : 0;
+    const raw = d.trim().toLowerCase();
+    const match = raw.match(/(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)?/);
+    if (!match) return 0;
+    const value = Number(match[1]);
+    const unit = match[2] || 'm';
+    if (!Number.isFinite(value)) return 0;
+    if (unit.startsWith('h')) return Math.round(value * 3600);
+    if (unit === 's' || unit.startsWith('sec')) return Math.round(value);
+    return Math.round(value * 60);
 }
 
 function secondsToDelay(s: number): string {
     if (s <= 0) return '0 min';
     if (s < 60) return `${s} sec`;
+    if (s % 3600 === 0) return `${s / 3600} hr`;
     return `${Math.round(s / 60)} min`;
 }
 
@@ -210,7 +218,7 @@ const defaultEscalationLevels: EscalationLevel[] = [
 ];
 
 const escalationTargetOptions = ['Same Role', 'Supervisor', 'Department Head', 'Admin On-Call', 'Charge Nurse', 'Attending Physician', 'ED Doctor On-Call', 'ED Supervisor', 'CEO', 'Doctor in Charge of Patient', 'Department Lead', 'ICU Doctor On-Call', 'ICU Department Lead', 'OBGYN On-Call', 'OBGYN Department Supervisor', 'Peds Doctor On-Call', 'Peds Unit Lead', 'Anaesthesia On-Call', 'Theatre Supervisor', 'ED Triage On-Call', 'Safety Officer', 'Hospital Administrator On-Call', 'Ward Nurse In-Charge', 'Administrator On-Call'];
-const delayOptions = ['0 min', '1 min', '2 min', '3 min', '5 min', '7 min', '10 min', '12 min', '15 min', '20 min'];
+const delayOptions = ['30 sec', '45 sec', '0 min', '1 min', '2 min', '3 min', '5 min', '7 min', '10 min', '12 min', '15 min', '20 min', '30 min', '1 hr', '2 hr'];
 
 function extractDepartmentNames(raw: unknown): string[] {
     const list = Array.isArray(raw)
@@ -246,8 +254,8 @@ export default function RolesBuilderAssignment() {
 
     // Add Role multi-step form state
     const [showAddForm, setShowAddForm] = useState(false);
-    const [addStep, setAddStep] = useState(0); // 0 = template selection, 1 = template confirm / custom basic info, 2 = custom escalation settings
-    const [selectedTemplate, setSelectedTemplate] = useState<RoleTemplate | null>(null);
+    const [addStep, setAddStep] = useState(2); // 2 = custom basic info, 3 = custom escalation settings
+    const [selectedTemplate, setSelectedTemplate] = useState<RoleTemplate>(roleTemplates[0]);
     const [templateDept, setTemplateDept] = useState('');
     const [templateCreating, setTemplateCreating] = useState(false);
     const [newRoleName, setNewRoleName] = useState('');
@@ -367,16 +375,13 @@ export default function RolesBuilderAssignment() {
     const selectedRole = roles.find(r => r.id === selectedId) || null;
 
     const resetAddForm = () => {
-        setSelectedTemplate(null);
-        setTemplateDept('');
-        setTemplateCreating(false);
         setNewRoleName('');
         setNewRoleDesc('');
         setNewRoleDept('');
         setNewRoleMandatory(false);
         setNewRouting([]);
         setNewEscLevels([]);
-        setAddStep(0);
+        setAddStep(2);
         setShowAddForm(false);
     };
 
@@ -387,7 +392,7 @@ export default function RolesBuilderAssignment() {
     };
 
     const selectCustomRole = () => {
-        setSelectedTemplate(null);
+        setSelectedTemplate(roleTemplates[0]);
         setNewRoleName('');
         setNewRoleDesc('');
         setNewRoleMandatory(false);
@@ -754,6 +759,8 @@ export default function RolesBuilderAssignment() {
                                     placeholder="Delay"
                                     style={{ width: 100 }}
                                     maxH={160}
+                                    allowCustom
+                                    customPlaceholder="e.g. 45 sec, 2 min, 1 hr"
                                 />
                                 {sorted.length > 1 && (
                                     <button
@@ -976,7 +983,7 @@ export default function RolesBuilderAssignment() {
                     subtitle="Role Management"
                     search={{ placeholder: 'Search roles...', value: search, onChange: setSearch }}
                     actions={
-                        <button className="btn btn-primary btn-sm" onClick={() => { if (showAddForm) resetAddForm(); else setShowAddForm(true); }}>
+                        <button className="btn btn-primary btn-sm" onClick={() => { if (showAddForm) resetAddForm(); else { setShowAddForm(true); setAddStep(2); setNewEscLevels(defaultEscalationLevels.map(l => ({ ...l }))); } }}>
                             <span className="material-icons-round" style={{ fontSize: 14 }}>{showAddForm ? 'close' : 'add'}</span>
                             {showAddForm ? 'Cancel' : 'Add Role'}
                         </button>
@@ -991,7 +998,7 @@ export default function RolesBuilderAssignment() {
                             <h4 style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Create New Role</h4>
 
                             {/* Step 0: Template Selection */}
-                            {addStep === 0 && (
+                            {false && addStep === 0 && (
                                 <>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, marginBottom: 14 }}>
                                         <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Select a template or create a custom role.</p>
@@ -1036,7 +1043,7 @@ export default function RolesBuilderAssignment() {
                             )}
 
                             {/* Step 1: Template Confirmation — shows which roles will be created */}
-                            {addStep === 1 && selectedTemplate && (() => {
+                            {false && addStep === 1 && selectedTemplate && (() => {
                                 const existingNames = new Set(roles.map(r => r.name.toLowerCase()));
                                 const newCount = selectedTemplate.roles.filter(tr => !existingNames.has(tr.name.toLowerCase())).length;
                                 const allExist = newCount === 0;
@@ -1092,7 +1099,7 @@ export default function RolesBuilderAssignment() {
                                     </div>
 
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <button className="btn btn-secondary btn-sm" onClick={() => { setSelectedTemplate(null); setAddStep(0); }}>
+                                        <button className="btn btn-secondary btn-sm" onClick={() => { setSelectedTemplate(roleTemplates[0]); setAddStep(0); }}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
                                             Back
                                         </button>
@@ -1143,9 +1150,9 @@ export default function RolesBuilderAssignment() {
                                     </div>
 
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <button className="btn btn-secondary btn-sm" onClick={() => setAddStep(0)}>
+                                        <button className="btn btn-secondary btn-sm" onClick={resetAddForm}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
-                                            Templates
+                                            Cancel
                                         </button>
                                         {newRoleMandatory ? (
                                             <button className="btn btn-primary btn-sm" onClick={() => setAddStep(3)} disabled={!newRoleName.trim()}>
