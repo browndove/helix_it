@@ -185,6 +185,7 @@ function extractDepartmentNames(raw: unknown): string[] {
 }
 
 export default function EscalationAlertSettings() {
+    const DESC_LIMIT = 200;
     const [roles, setRoles] = useState<Role[]>([]);
     const [policies, setPolicies] = useState<Policy[]>([]);
     const [departments, setDepartments] = useState<string[]>([]);
@@ -736,7 +737,16 @@ export default function EscalationAlertSettings() {
                                     </div>
                                     <div>
                                         <label className="label">Description</label>
-                                        <textarea className="input" value={editDesc} onChange={e => setEditDesc(e.target.value)} style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }} />
+                                        <textarea
+                                            className="input"
+                                            value={editDesc}
+                                            maxLength={DESC_LIMIT}
+                                            onChange={e => setEditDesc(e.target.value.slice(0, DESC_LIMIT))}
+                                            style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }}
+                                        />
+                                        <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--text-muted)', textAlign: 'right' }}>
+                                            {editDesc.length}/{DESC_LIMIT}
+                                        </div>
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}>
                                         <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--danger)' }}>priority_high</span>
@@ -842,7 +852,17 @@ export default function EscalationAlertSettings() {
                                         </div>
                                         <div>
                                             <label className="label">Description</label>
-                                            <textarea className="input" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Describe when this escalation should trigger..." style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }} />
+                                            <textarea
+                                                className="input"
+                                                value={newDesc}
+                                                maxLength={DESC_LIMIT}
+                                                onChange={e => setNewDesc(e.target.value.slice(0, DESC_LIMIT))}
+                                                placeholder="Describe when this escalation should trigger..."
+                                                style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }}
+                                            />
+                                            <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--text-muted)', textAlign: 'right' }}>
+                                                {newDesc.length}/{DESC_LIMIT}
+                                            </div>
                                         </div>
                                         <div>
                                             <label className="label">Department (optional)</label>

@@ -396,6 +396,7 @@ function resolveRoleDepartment(
 }
 
 export default function RolesBuilderAssignment() {
+    const DESC_LIMIT = 200;
     const [roles, setRoles] = useState<Role[]>([]);
     const [policies, setPolicies] = useState<Policy[]>([]);
     const [departments, setDepartments] = useState<string[]>([]);
@@ -1250,7 +1251,17 @@ export default function RolesBuilderAssignment() {
 
                                 <div style={{ marginBottom: 14 }}>
                                     <label className="label">Description</label>
-                                    <textarea className="input" value={editDesc} onChange={e => setEditDesc(e.target.value)} style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }} placeholder="Describe this role..." />
+                                    <textarea
+                                        className="input"
+                                        value={editDesc}
+                                        maxLength={DESC_LIMIT}
+                                        onChange={e => setEditDesc(e.target.value.slice(0, DESC_LIMIT))}
+                                        style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }}
+                                        placeholder="Describe this role..."
+                                    />
+                                    <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--text-muted)', textAlign: 'right' }}>
+                                        {editDesc.length}/{DESC_LIMIT}
+                                    </div>
                                 </div>
 
                                 <div style={{ marginBottom: 14 }}>
@@ -1506,7 +1517,17 @@ export default function RolesBuilderAssignment() {
 
                                     <div style={{ marginBottom: 14 }}>
                                         <label className="label">Description</label>
-                                        <textarea className="input" value={newRoleDesc} onChange={e => setNewRoleDesc(e.target.value)} style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }} placeholder="Describe this role..." />
+                                        <textarea
+                                            className="input"
+                                            value={newRoleDesc}
+                                            maxLength={DESC_LIMIT}
+                                            onChange={e => setNewRoleDesc(e.target.value.slice(0, DESC_LIMIT))}
+                                            style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }}
+                                            placeholder="Describe this role..."
+                                        />
+                                        <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--text-muted)', textAlign: 'right' }}>
+                                            {newRoleDesc.length}/{DESC_LIMIT}
+                                        </div>
                                     </div>
 
                                     {renderSignInRestriction(newRestricted, setNewRestricted, newAllowedUserIds, setNewAllowedUserIds)}
