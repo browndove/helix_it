@@ -524,6 +524,7 @@ export default function EscalationAlertSettings() {
                             r.name.toLowerCase().includes(roleQuery)
                             || r.description.toLowerCase().includes(roleQuery))
                         : available;
+                    const autoCompleteMatches = roleQuery ? filteredAvailable.slice(0, 6) : [];
                     return (
                         <div key={lvl.level} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                             {/* Level indicator */}
@@ -537,14 +538,64 @@ export default function EscalationAlertSettings() {
                                 <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                                         <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Level {lvl.level} — Target Role</span>
-                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                            <input
-                                                className="input"
-                                                value={levelRoleSearch[lvl.level] || ''}
-                                                onChange={e => setLevelRoleSearch(prev => ({ ...prev, [lvl.level]: e.target.value }))}
-                                                placeholder="Search roles..."
-                                                style={{ width: 140, height: 26, fontSize: 11, padding: '0 8px' }}
-                                            />
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, position: 'relative' }}>
+                                            <div style={{ position: 'relative' }}>
+                                                <input
+                                                    className="input"
+                                                    value={levelRoleSearch[lvl.level] || ''}
+                                                    onChange={e => setLevelRoleSearch(prev => ({ ...prev, [lvl.level]: e.target.value }))}
+                                                    placeholder="Search roles..."
+                                                    style={{ width: 180, height: 26, fontSize: 11, padding: '0 8px' }}
+                                                />
+                                                {roleQuery && (
+                                                    <div style={{
+                                                        position: 'absolute',
+                                                        top: 30,
+                                                        right: 0,
+                                                        width: 300,
+                                                        maxHeight: 220,
+                                                        overflowY: 'auto',
+                                                        background: 'var(--surface-card)',
+                                                        border: '1px solid var(--border-default)',
+                                                        borderRadius: 'var(--radius-md)',
+                                                        boxShadow: '0 8px 18px rgba(0,0,0,0.14)',
+                                                        zIndex: 20,
+                                                        padding: 4,
+                                                    }}>
+                                                        {autoCompleteMatches.length === 0 ? (
+                                                            <div style={{ padding: '8px 10px', fontSize: 11, color: 'var(--text-muted)' }}>No matching roles</div>
+                                                        ) : autoCompleteMatches.map(r => (
+                                                            <button
+                                                                key={`${lvl.level}-${r.id}`}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const u = levels.map(l => l.level === lvl.level ? { ...l, target: r.name, target_role_id: r.id } : l);
+                                                                    setLevels(u);
+                                                                    setLevelRoleSearch(prev => ({ ...prev, [lvl.level]: '' }));
+                                                                }}
+                                                                style={{
+                                                                    width: '100%',
+                                                                    textAlign: 'left',
+                                                                    border: '1px solid transparent',
+                                                                    background: 'transparent',
+                                                                    borderRadius: 'var(--radius-sm)',
+                                                                    padding: '6px 8px',
+                                                                    cursor: 'pointer',
+                                                                }}
+                                                                onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+                                                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
+                                                            >
+                                                                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{r.name}</div>
+                                                                {r.description && (
+                                                                    <div style={{ fontSize: 10.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                                        {r.description}
+                                                                    </div>
+                                                                )}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
                                             {sorted.length > 1 && (
                                                 <button type="button" onClick={() => removeLevel(lvl.level)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'inline-flex', color: 'var(--text-muted)', borderRadius: 'var(--radius-sm)' }} title="Remove level" onMouseEnter={e => (e.currentTarget.style.color = 'var(--danger)')} onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
                                                     <span className="material-icons-round" style={{ fontSize: 14 }}>close</span>
@@ -740,7 +791,7 @@ export default function EscalationAlertSettings() {
 
             {/* Edit Modal */}
             {editPolicyId && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }} onClick={closeEditModal}>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }}>
                     <div className="fade-in card" style={{ width: 560, maxHeight: '85vh', overflow: 'auto', padding: '28px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
                         <h3 style={{ fontSize: 16, marginBottom: 16 }}>Edit Escalation Chain</h3>
 
@@ -817,7 +868,7 @@ export default function EscalationAlertSettings() {
 
             {/* Delete Confirm */}
             {confirmDelete && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }} onClick={() => setConfirmDelete(null)}>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }}>
                     <div className="fade-in card" style={{ width: 400, padding: '24px 28px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
                         <h3 style={{ fontSize: 16, marginBottom: 8 }}>Delete Escalation Chain</h3>
                         <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
