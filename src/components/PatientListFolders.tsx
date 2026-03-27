@@ -40,7 +40,18 @@ const N = (v: unknown) => (typeof v === 'number' ? v : 0);
 function extractList(raw: unknown): unknown[] {
     if (Array.isArray(raw)) return raw;
     const r = R(raw);
-    return Array.isArray(r.items) ? r.items : Array.isArray(r.data) ? r.data : Array.isArray(r.folders) ? r.folders : Array.isArray(r.patient_folders) ? r.patient_folders : [];
+    if (Array.isArray(r.items)) return r.items;
+    if (Array.isArray(r.data)) return r.data;
+    if (Array.isArray(r.folders)) return r.folders;
+    if (Array.isArray(r.patient_folders)) return r.patient_folders;
+
+    // Some endpoints return { data: { items: [...] } } or { data: { data: [...] } }
+    const dataObj = r.data && typeof r.data === 'object' && !Array.isArray(r.data) ? R(r.data) : null;
+    if (dataObj) {
+        if (Array.isArray(dataObj.items)) return dataObj.items;
+        if (Array.isArray(dataObj.data)) return dataObj.data;
+    }
+    return [];
 }
 
 function parsePatient(row: unknown, idx: number): Patient | null {
