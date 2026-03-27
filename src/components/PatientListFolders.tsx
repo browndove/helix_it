@@ -115,9 +115,13 @@ export default function PatientListFolders() {
     const [saving, setSaving] = useState(false);
 
     const [showAddPanel, setShowAddPanel] = useState(false);
+    const [addMode, setAddMode] = useState<'unit' | 'search'>('unit');
     const [addUnitId, setAddUnitId] = useState('');
     const [addPatients, setAddPatients] = useState<Patient[]>([]);
     const [addLoading, setAddLoading] = useState(false);
+    const [addSearch, setAddSearch] = useState('');
+    const [addSearchResults, setAddSearchResults] = useState<Patient[]>([]);
+    const [addSearchLoading, setAddSearchLoading] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     const selectedFolder = useMemo(() => selected?.kind === 'folder' ? folders.find(f => f.id === selected.id) || null : null, [folders, selected]);
@@ -160,13 +164,20 @@ export default function PatientListFolders() {
         if (!uid) return;
         setFpLoading(true);
         try {
-            const params = new URLSearchParams({ page_size: '200', unit_id: uid });
+            // Backend directory endpoint does not reliably accept unit_id filtering in all deployments.
+            // Fetch a large slice of the facility directory and filter client-side by care_unit/unit_id.
+            const params = new URLSearchParams({ page_size: '200', page_id: '1', directory_scope: 'all' });
             const res = await fetch(`/api/proxy/patients/directory?${params.toString()}`);
             if (res.ok) {
                 const parsed = parsePaged(await res.json());
-                setFolderPatients(parsed.items.map(p => ({ id: p.id, first_name: p.first_name, last_name: p.last_name, medical_record_number: p.medical_record_number, status: p.status, room: p.room, bed: p.bed, care_unit_name: p.care_unit_name })));
+                const filtered = parsed.items.filter(p => p.unit_id === uid || p.care_unit?.id === uid);
+                setFolderPatients(filtered.map(p => ({ id: p.id, first_name: p.first_name, last_name: p.last_name, medical_record_number: p.medical_record_number, status: p.status, room: p.room, bed: p.bed, care_unit_name: p.care_unit_name })));
+            } else {
+                setFolderPatients([]);
             }
-        } catch { /* silent */ }
+        } catch {
+            setFolderPatients([]);
+        }
         setFpLoading(false);
     }, []);
 
@@ -174,12 +185,38 @@ export default function PatientListFolders() {
         if (!uid) { setAddPatients([]); return; }
         setAddLoading(true);
         try {
-            const params = new URLSearchParams({ page_size: '200', unit_id: uid });
+            const params = new URLSearchParams({ page_size: '200', page_id: '1', directory_scope: 'all' });
             const res = await fetch(`/api/proxy/patients/directory?${params.toString()}`);
-            if (res.ok) { const parsed = parsePaged(await res.json()); setAddPatients(parsed.items); }
-        } catch { /* silent */ }
+            if (res.ok) {
+                const parsed = parsePaged(await res.json());
+                setAddPatients(parsed.items.filter(p => p.unit_id === uid || p.care_unit?.id === uid));
+            } else {
+                setAddPatients([]);
+            }
+        } catch {
+            setAddPatients([]);
+        }
         setAddLoading(false);
     }, []);
+
+    const searchAddPatients = useCallback(async () => {
+        const query = addSearch.trim();
+        if (!query) { setAddSearchResults([]); return; }
+        setAddSearchLoading(true);
+        try {
+            const params = new URLSearchParams({ q: query, page_size: '50', page_id: '1' });
+            const res = await fetch(`/api/proxy/patients/search?${params.toString()}`);
+            if (res.ok) {
+                const parsed = parsePaged(await res.json());
+                setAddSearchResults(parsed.items);
+            } else {
+                setAddSearchResults([]);
+            }
+        } catch {
+            setAddSearchResults([]);
+        }
+        setAddSearchLoading(false);
+    }, [addSearch]);
 
     /* ── Effects ───────────────────────────────────────────── */
 
@@ -192,9 +229,19 @@ export default function PatientListFolders() {
     }, [selected, fetchFolderPatients, fetchUnitPatients]);
 
     useEffect(() => {
-        if (addUnitId) fetchAddUnitPatients(addUnitId);
-        else { setAddPatients([]); setSelectedIds(new Set()); }
-    }, [addUnitId, fetchAddUnitPatients]);
+        if (!showAddPanel) {
+            setAddPatients([]);
+            setAddSearchResults([]);
+            setSelectedIds(new Set());
+            return;
+        }
+        if (addMode === 'unit') {
+            if (addUnitId) fetchAddUnitPatients(addUnitId);
+            else { setAddPatients([]); setSelectedIds(new Set()); }
+        } else {
+            setAddPatients([]);
+        }
+    }, [addMode, addUnitId, fetchAddUnitPatients, showAddPanel]);
 
     /* ── Folder Actions ────────────────────────────────────── */
 
@@ -241,7 +288,11 @@ export default function PatientListFolders() {
     /* ── Add-by-unit actions ──────────────────────────────── */
 
     const toggleId = (id: string) => setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-    const selectAll = () => { const eligible = addPatients.filter(p => !folderPatients.some(fp => fp.id === p.id)); setSelectedIds(new Set(eligible.map(p => p.id))); };
+    const selectAll = () => {
+        const source = addMode === 'unit' ? addPatients : addSearchResults;
+        const eligible = source.filter(p => !folderPatients.some(fp => fp.id === p.id));
+        setSelectedIds(new Set(eligible.map(p => p.id)));
+    };
     const deselectAll = () => setSelectedIds(new Set());
 
     const addSelectedToFolder = async () => {
@@ -250,7 +301,13 @@ export default function PatientListFolders() {
             const res = await fetch(`/api/proxy/patient-folders/${selectedFolder.id}/patients`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ patient_ids: Array.from(selectedIds) }) });
             if (!res.ok) { showToast('Failed to add patients'); setSaving(false); return; }
             showToast(`${selectedIds.size} patient${selectedIds.size !== 1 ? 's' : ''} added`);
-            setSelectedIds(new Set()); setShowAddPanel(false); setAddUnitId(''); setAddPatients([]);
+            setSelectedIds(new Set());
+            setShowAddPanel(false);
+            setAddMode('unit');
+            setAddUnitId('');
+            setAddPatients([]);
+            setAddSearch('');
+            setAddSearchResults([]);
             fetchFolderPatients(selectedFolder.id);
         } catch { showToast('Failed to add patients'); } setSaving(false);
     };
@@ -271,40 +328,70 @@ export default function PatientListFolders() {
             <div className="app-main">
                 <TopBar title="Patient List" subtitle="Folders" />
 
-                <main style={{ flex: 1, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16, minHeight: 'calc(100vh - 140px)' }}>
+                <main style={{ flex: 1, overflow: 'auto', background: 'var(--bg-900)' }}>
+                    <div className="page-container">
+                        <div className="split-layout" style={{ minHeight: 'calc(100vh - 140px)' }}>
 
                         {/* ═══════════ LEFT: FOLDER SIDEBAR ═══════════ */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div className="sticky-col">
+                            <div className="sidebar-stack">
 
                             {/* Summary card */}
                             {summary && (
-                                <div className="card" style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                                    <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(99,102,241,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                        <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--helix-primary)' }}>groups</span>
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--helix-primary)', lineHeight: 1 }}>{summary.total_patients}</div>
-                                        <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>Total Patients</div>
+                                <div className="panel">
+                                    <div className="panel-header">
+                                        <div style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(30,58,95,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 18, color: 'var(--helix-primary)' }}>groups</span>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+                                            <div className="panel-title">Patient List</div>
+                                            <div className="panel-subtitle">Total across your facility</div>
+                                        </div>
+                                        <span style={{ flex: 1 }} />
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--helix-primary)', lineHeight: 1 }}>{summary.total_patients}</div>
+                                            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Patients</div>
+                                        </div>
                                     </div>
                                 </div>
                             )}
 
                             {/* Unit Folders */}
                             {summary && summary.by_unit.length > 0 && (
-                                <div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, padding: '0 2px' }}>
-                                        <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--info)' }}>apartment</span>
-                                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>By Unit</span>
+                                <div className="panel">
+                                    <div className="panel-header">
+                                        <span className="material-icons-round" style={{ fontSize: 18, color: 'var(--info)' }}>apartment</span>
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <div className="panel-title">By Unit</div>
+                                            <div className="panel-subtitle">Quick grouping</div>
+                                        </div>
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                    <div className="panel-body" style={{ padding: 10 }}>
                                         {summary.by_unit.map(u => {
                                             const active = selected?.kind === 'unit' && selected.id === u.unit_id;
                                             return (
-                                                <button key={`u-${u.unit_id}`} type="button" onClick={() => { setSelected({ kind: 'unit', id: u.unit_id, name: u.unit_name }); setShowAddPanel(false); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', background: active ? 'rgba(59,130,246,0.08)' : 'transparent', transition: 'all 0.12s', textAlign: 'left', width: '100%' }}>
-                                                    <span className="material-icons-round" style={{ fontSize: 16, color: active ? 'var(--info)' : 'var(--text-disabled)' }}>apartment</span>
-                                                    <span style={{ flex: 1, fontSize: 12, fontWeight: active ? 700 : 500, color: active ? 'var(--info)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.unit_name}</span>
-                                                    <span style={{ fontSize: 10, color: 'var(--text-disabled)', fontWeight: 600, flexShrink: 0 }}>{u.patient_count}</span>
+                                                <button
+                                                    key={`u-${u.unit_id}`}
+                                                    type="button"
+                                                    onClick={() => { setSelected({ kind: 'unit', id: u.unit_id, name: u.unit_name }); setShowAddPanel(false); }}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 10,
+                                                        padding: '9px 10px',
+                                                        borderRadius: 10,
+                                                        border: '1px solid',
+                                                        borderColor: active ? 'rgba(58,107,159,0.25)' : 'transparent',
+                                                        cursor: 'pointer',
+                                                        background: active ? 'rgba(58,107,159,0.08)' : 'transparent',
+                                                        transition: 'all 0.12s',
+                                                        textAlign: 'left',
+                                                        width: '100%',
+                                                    }}
+                                                >
+                                                    <span className="material-icons-round" style={{ fontSize: 18, color: active ? 'var(--info)' : 'var(--text-disabled)' }}>apartment</span>
+                                                    <span style={{ flex: 1, fontSize: 12.5, fontWeight: active ? 800 : 600, color: active ? 'var(--info)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.unit_name}</span>
+                                                    <span className="badge badge-neutral" style={{ fontSize: 10, padding: '2px 8px', letterSpacing: '0.02em' }}>{u.patient_count}</span>
                                                 </button>
                                             );
                                         })}
@@ -313,18 +400,22 @@ export default function PatientListFolders() {
                             )}
 
                             {/* Custom Folders */}
-                            <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, padding: '0 2px' }}>
-                                    <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--helix-primary)' }}>folder</span>
-                                    <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Custom Folders</span>
+                            <div className="panel">
+                                <div className="panel-header">
+                                    <span className="material-icons-round" style={{ fontSize: 18, color: 'var(--helix-primary)' }}>folder</span>
+                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                        <div className="panel-title">Folders</div>
+                                        <div className="panel-subtitle">Custom lists</div>
+                                    </div>
                                     <span style={{ flex: 1 }} />
-                                    <button onClick={() => setShowCreate(!showCreate)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }} title="New folder">
-                                        <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--helix-primary)' }}>{showCreate ? 'close' : 'add'}</span>
+                                    <button onClick={() => setShowCreate(!showCreate)} className="btn btn-secondary btn-xs" style={{ padding: '4px 10px' }}>
+                                        <span className="material-icons-round" style={{ fontSize: 14 }}>{showCreate ? 'close' : 'add'}</span>
+                                        {showCreate ? 'Close' : 'New'}
                                     </button>
                                 </div>
 
                                 {showCreate && (
-                                    <div className="card fade-in" style={{ padding: 10, marginBottom: 8 }}>
+                                    <div className="panel-body fade-in" style={{ paddingTop: 10, paddingBottom: 10 }}>
                                         <input className="input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Folder name" style={{ width: '100%', fontSize: 12, marginBottom: 6 }} />
                                         <input className="input" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Description (optional)" style={{ width: '100%', fontSize: 12, marginBottom: 6 }} />
                                         <button className="btn btn-primary btn-xs" onClick={createFolder} disabled={saving || !newName.trim()} style={{ width: '100%' }}>Create</button>
@@ -332,38 +423,60 @@ export default function PatientListFolders() {
                                 )}
 
                                 {foldersLoading ? (
-                                    <div style={{ padding: '16px 10px', textAlign: 'center', fontSize: 11, color: 'var(--text-muted)' }}>Loading...</div>
+                                    <div className="panel-body" style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--text-muted)' }}>Loading...</div>
                                 ) : folders.length === 0 ? (
-                                    <div style={{ padding: '12px 10px', textAlign: 'center', fontSize: 11, color: 'var(--text-muted)' }}>No custom folders yet</div>
+                                    <div className="panel-body" style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--text-muted)' }}>No custom folders yet</div>
                                 ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                    <div className="panel-body" style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 2 }}>
                                         {folders.map(f => {
                                             const active = selected?.kind === 'folder' && selected.id === f.id;
                                             return (
-                                                <button key={f.id} type="button" onClick={() => { setSelected({ kind: 'folder', id: f.id, name: f.name }); setShowAddPanel(false); setRenaming(false); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', background: active ? 'rgba(99,102,241,0.08)' : 'transparent', transition: 'all 0.12s', textAlign: 'left', width: '100%' }}>
+                                                <button
+                                                    key={f.id}
+                                                    type="button"
+                                                    onClick={() => { setSelected({ kind: 'folder', id: f.id, name: f.name }); setShowAddPanel(false); setRenaming(false); }}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 10,
+                                                        padding: '9px 10px',
+                                                        borderRadius: 10,
+                                                        border: '1px solid',
+                                                        borderColor: active ? 'rgba(30,58,95,0.25)' : 'transparent',
+                                                        cursor: 'pointer',
+                                                        background: active ? 'rgba(30,58,95,0.08)' : 'transparent',
+                                                        transition: 'all 0.12s',
+                                                        textAlign: 'left',
+                                                        width: '100%',
+                                                    }}
+                                                >
                                                     <span className="material-icons-round" style={{ fontSize: 16, color: active ? 'var(--helix-primary)' : 'var(--text-disabled)' }}>folder</span>
-                                                    <span style={{ flex: 1, fontSize: 12, fontWeight: active ? 700 : 500, color: active ? 'var(--helix-primary)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
-                                                    <span style={{ fontSize: 10, color: 'var(--text-disabled)', fontWeight: 600, flexShrink: 0 }}>{f.patient_count}</span>
+                                                    <span style={{ flex: 1, fontSize: 12.5, fontWeight: active ? 800 : 600, color: active ? 'var(--helix-primary)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
+                                                    <span className="badge badge-neutral" style={{ fontSize: 10, padding: '2px 8px', letterSpacing: '0.02em' }}>{f.patient_count}</span>
                                                 </button>
                                             );
                                         })}
                                     </div>
                                 )}
                             </div>
+                            </div>
                         </div>
 
                         {/* ═══════════ RIGHT: FOLDER CONTENT ═══════════ */}
                         <div>
                             {!selected ? (
-                                <div className="card" style={{ padding: '60px 40px', textAlign: 'center' }}>
+                                <div className="panel">
+                                    <div className="panel-body" style={{ padding: '64px 44px', textAlign: 'center' }}>
                                     <span className="material-icons-round" style={{ fontSize: 48, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }}>folder_open</span>
-                                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>Select a folder</div>
-                                    <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Choose a unit or custom folder from the sidebar to view its patients</div>
+                                    <div style={{ fontSize: 14.5, fontWeight: 800, color: 'var(--text-secondary)', marginBottom: 6 }}>Select a list</div>
+                                    <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>Pick a unit or folder on the left to view patients.</div>
+                                    </div>
                                 </div>
                             ) : (
                                 <>
                                     {/* Folder header */}
-                                    <div className="card" style={{ padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <div className="panel" style={{ marginBottom: 12 }}>
+                                        <div className="panel-header">
                                         <span className="material-icons-round" style={{ fontSize: 22, color: selected.kind === 'unit' ? 'var(--info)' : 'var(--helix-primary)' }}>{selected.kind === 'unit' ? 'apartment' : 'folder_open'}</span>
                                         {renaming && selectedFolder ? (
                                             <div style={{ display: 'flex', gap: 6, flex: 1 }}>
@@ -373,13 +486,30 @@ export default function PatientListFolders() {
                                             </div>
                                         ) : (
                                             <>
-                                                <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{selected.name}</span>
-                                                <span style={{ fontSize: 11, color: 'var(--text-disabled)', fontWeight: 600 }}>{folderPatients.length} patient{folderPatients.length !== 1 ? 's' : ''}</span>
+                                                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, lineHeight: 1.15 }}>
+                                                    <span className="panel-title">{selected.name}</span>
+                                                    <span className="panel-subtitle">{folderPatients.length} patient{folderPatients.length !== 1 ? 's' : ''}</span>
+                                                </div>
                                             </>
                                         )}
                                         {selected.kind === 'folder' && !renaming && (
                                             <div style={{ display: 'flex', gap: 2 }}>
-                                                <button onClick={() => setShowAddPanel(!showAddPanel)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }} title="Add patients">
+                                                <button
+                                                    onClick={() => {
+                                                        const next = !showAddPanel;
+                                                        setShowAddPanel(next);
+                                                        if (!next) {
+                                                            setAddMode('unit');
+                                                            setAddUnitId('');
+                                                            setAddPatients([]);
+                                                            setAddSearch('');
+                                                            setAddSearchResults([]);
+                                                            setSelectedIds(new Set());
+                                                        }
+                                                    }}
+                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
+                                                    title="Add patients"
+                                                >
                                                     <span className="material-icons-round" style={{ fontSize: 16, color: showAddPanel ? 'var(--helix-primary)' : 'var(--text-muted)' }}>person_add</span>
                                                 </button>
                                                 <button onClick={() => { setRenaming(true); setRenameValue(selectedFolder?.name || ''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }} title="Rename">
@@ -390,72 +520,191 @@ export default function PatientListFolders() {
                                                 </button>
                                             </div>
                                         )}
+                                        </div>
                                     </div>
 
-                                    {/* Add-by-unit panel */}
+                                    {/* Add patients panel */}
                                     {showAddPanel && selectedFolder && (
                                         <div className="card fade-in" style={{ padding: 0, overflow: 'hidden', marginBottom: 12 }}>
                                             <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
                                                 <span className="material-icons-round" style={{ fontSize: 18, color: 'var(--helix-primary)' }}>person_add</span>
-                                                <span style={{ fontSize: 13, fontWeight: 700 }}>Add Patients by Unit</span>
+                                                <span style={{ fontSize: 13, fontWeight: 700 }}>Add Patients</span>
                                                 <span style={{ flex: 1 }} />
-                                                <button onClick={() => { setShowAddPanel(false); setAddUnitId(''); setAddPatients([]); setSelectedIds(new Set()); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+                                                <button
+                                                    onClick={() => {
+                                                        setShowAddPanel(false);
+                                                        setAddMode('unit');
+                                                        setAddUnitId('');
+                                                        setAddPatients([]);
+                                                        setAddSearch('');
+                                                        setAddSearchResults([]);
+                                                        setSelectedIds(new Set());
+                                                    }}
+                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
+                                                    title="Close"
+                                                >
                                                     <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)' }}>close</span>
                                                 </button>
                                             </div>
 
-                                            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
-                                                <CustomSelect value={addUnitId} onChange={v => { setAddUnitId(v); setSelectedIds(new Set()); }} options={[{ label: 'Select a unit...', value: '' }, ...units.map(u => ({ label: u.name, value: u.id }))]} placeholder="Select unit" style={{ width: '100%' }} />
+                                            <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                <div style={{ display: 'inline-flex', borderRadius: 999, background: 'var(--surface-2)', padding: 2, border: '1px solid var(--border-subtle)' }}>
+                                                    {(['unit', 'search'] as const).map(mode => (
+                                                        <button
+                                                            key={mode}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setAddMode(mode);
+                                                                setSelectedIds(new Set());
+                                                                if (mode === 'unit') {
+                                                                    setAddSearch('');
+                                                                    setAddSearchResults([]);
+                                                                } else {
+                                                                    setAddUnitId('');
+                                                                    setAddPatients([]);
+                                                                }
+                                                            }}
+                                                            style={{
+                                                                border: 'none',
+                                                                cursor: 'pointer',
+                                                                padding: '6px 12px',
+                                                                borderRadius: 999,
+                                                                fontSize: 11,
+                                                                fontWeight: 700,
+                                                                letterSpacing: '0.02em',
+                                                                background: addMode === mode ? 'var(--helix-primary)' : 'transparent',
+                                                                color: addMode === mode ? '#fff' : 'var(--text-secondary)',
+                                                                transition: 'all 0.12s',
+                                                            }}
+                                                        >
+                                                            {mode === 'unit' ? 'By Unit' : 'Search'}
+                                                        </button>
+                                                    ))}
+                                                </div>
+
+                                                <div style={{ flex: 1, minWidth: 260 }}>
+                                                    {addMode === 'unit' ? (
+                                                        <CustomSelect
+                                                            value={addUnitId}
+                                                            onChange={v => { setAddUnitId(v); setSelectedIds(new Set()); }}
+                                                            options={[{ label: 'Select a unit...', value: '' }, ...units.map(u => ({ label: u.name, value: u.id }))]}
+                                                            placeholder="Select unit"
+                                                            style={{ width: '100%' }}
+                                                        />
+                                                    ) : (
+                                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                                            <input
+                                                                className="input"
+                                                                placeholder="Search by patient name or MRN..."
+                                                                value={addSearch}
+                                                                onChange={e => setAddSearch(e.target.value)}
+                                                                onKeyDown={e => { if (e.key === 'Enter') searchAddPatients(); }}
+                                                                style={{ fontSize: 12, flex: 1 }}
+                                                            />
+                                                            <button className="btn btn-secondary btn-xs" onClick={searchAddPatients} disabled={!addSearch.trim() || addSearchLoading}>
+                                                                {addSearchLoading ? 'Searching...' : 'Search'}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
 
-                                            {addUnitId && (
+                                            {(addMode === 'unit' ? Boolean(addUnitId) : addSearch.trim().length > 0) && (
                                                 <>
                                                     <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{addPatients.length} patient{addPatients.length !== 1 ? 's' : ''} in unit</span>
+                                                        {(() => {
+                                                            const source = addMode === 'unit' ? addPatients : addSearchResults;
+                                                            const label = addMode === 'unit' ? 'in unit' : 'matching search';
+                                                            return (
+                                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700 }}>
+                                                                    {source.length} patient{source.length !== 1 ? 's' : ''} {label}
+                                                                </span>
+                                                            );
+                                                        })()}
                                                         <span style={{ flex: 1 }} />
                                                         {selectedIds.size > 0 ? (
                                                             <button className="btn btn-secondary btn-xs" onClick={deselectAll}>Deselect All</button>
                                                         ) : (
-                                                            <button className="btn btn-secondary btn-xs" onClick={selectAll} disabled={addLoading}>Select All</button>
+                                                            <button className="btn btn-secondary btn-xs" onClick={selectAll} disabled={addMode === 'unit' ? addLoading : addSearchLoading}>
+                                                                Select All
+                                                            </button>
                                                         )}
                                                         <button className="btn btn-primary btn-xs" onClick={addSelectedToFolder} disabled={saving || selectedIds.size === 0}>
                                                             Add {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
                                                         </button>
                                                     </div>
 
-                                                    {addLoading ? (
-                                                        <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>Loading patients...</div>
-                                                    ) : addPatients.length === 0 ? (
-                                                        <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>No patients in this unit</div>
-                                                    ) : (
-                                                        <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-                                                            {addPatients.map(p => {
-                                                                const inFolder = folderPatients.some(fp => fp.id === p.id);
-                                                                const checked = selectedIds.has(p.id);
-                                                                return (
-                                                                    <div key={p.id} onClick={() => { if (!inFolder) toggleId(p.id); }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)', cursor: inFolder ? 'default' : 'pointer', opacity: inFolder ? 0.45 : 1, background: checked ? 'rgba(99,102,241,0.06)' : 'transparent', transition: 'background 0.1s' }}>
-                                                                        <div style={{ width: 18, height: 18, borderRadius: 4, border: inFolder ? '1px solid var(--text-disabled)' : checked ? '1px solid var(--helix-primary)' : '1px solid var(--border-default)', background: inFolder ? 'var(--text-disabled)' : checked ? 'var(--helix-primary)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.12s' }}>
-                                                                            {(checked || inFolder) && <span className="material-icons-round" style={{ fontSize: 14, color: '#fff' }}>check</span>}
+                                                    {addMode === 'unit' ? (
+                                                        addLoading ? (
+                                                            <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>Loading patients...</div>
+                                                        ) : addPatients.length === 0 ? (
+                                                            <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>No patients in this unit</div>
+                                                        ) : null
+                                                    ) : addSearchLoading ? (
+                                                        <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>Searching patients...</div>
+                                                    ) : addSearchResults.length === 0 ? (
+                                                        <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>No patients match this search</div>
+                                                    ) : null}
+
+                                                    {(() => {
+                                                        const source = addMode === 'unit' ? addPatients : addSearchResults;
+                                                        const shouldHide =
+                                                            (addMode === 'unit' && (addLoading || addPatients.length === 0)) ||
+                                                            (addMode === 'search' && (addSearchLoading || addSearchResults.length === 0));
+                                                        if (shouldHide) return null;
+
+                                                        return (
+                                                            <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                                                                {source.map(p => {
+                                                                    const inFolder = folderPatients.some(fp => fp.id === p.id);
+                                                                    const checked = selectedIds.has(p.id);
+                                                                    return (
+                                                                        <div
+                                                                            key={p.id}
+                                                                            onClick={() => { if (!inFolder) toggleId(p.id); }}
+                                                                            style={{
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                gap: 10,
+                                                                                padding: '8px 16px',
+                                                                                borderBottom: '1px solid var(--border-subtle)',
+                                                                                cursor: inFolder ? 'default' : 'pointer',
+                                                                                opacity: inFolder ? 0.45 : 1,
+                                                                                background: checked ? 'rgba(30,58,95,0.06)' : 'transparent',
+                                                                                transition: 'background 0.1s',
+                                                                            }}
+                                                                        >
+                                                                            <div style={{ width: 18, height: 18, borderRadius: 4, border: inFolder ? '1px solid var(--text-disabled)' : checked ? '1px solid var(--helix-primary)' : '1px solid var(--border-default)', background: inFolder ? 'var(--text-disabled)' : checked ? 'var(--helix-primary)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.12s' }}>
+                                                                                {(checked || inFolder) && <span className="material-icons-round" style={{ fontSize: 14, color: '#fff' }}>check</span>}
+                                                                            </div>
+                                                                            <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--helix-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
+                                                                                {(p.first_name || 'U')[0]}{(p.last_name || 'P')[0]}
+                                                                            </div>
+                                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                                <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                                                    {p.first_name} {p.last_name}{inFolder ? ' (already in folder)' : ''}
+                                                                                </div>
+                                                                                <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                                                                                    {p.medical_record_number ? `MRN: ${p.medical_record_number}` : 'MRN: -'}
+                                                                                    {p.room ? ` · Rm ${p.room}${p.bed ? `/${p.bed}` : ''}` : ''}
+                                                                                </div>
+                                                                            </div>
+                                                                            <span className={`badge ${statusBadge(p.status)}`} style={{ fontSize: 9, flexShrink: 0 }}>{p.status}</span>
                                                                         </div>
-                                                                        <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--helix-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{p.first_name[0]}{p.last_name[0]}</div>
-                                                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                                                            <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.first_name} {p.last_name}{inFolder ? ' (already in folder)' : ''}</div>
-                                                                            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{p.medical_record_number && `MRN: ${p.medical_record_number}`}{p.room && ` \u00b7 Rm ${p.room}${p.bed ? `/${p.bed}` : ''}`}</div>
-                                                                        </div>
-                                                                        <span className={`badge ${statusBadge(p.status)}`} style={{ fontSize: 9, flexShrink: 0 }}>{p.status}</span>
-                                                                    </div>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    )}
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </>
                                             )}
                                         </div>
                                     )}
 
                                     {/* Patient table */}
-                                    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                    <div className="panel">
+                                        <div className="table-wrapper">
+                                        <table>
                                             <thead><tr style={{ borderBottom: '1px solid var(--border-default)' }}>
                                                 <th style={thStyle}>Patient</th><th style={thStyle}>MRN</th><th style={thStyle}>Unit</th><th style={thStyle}>Room/Bed</th><th style={{ ...thStyle, textAlign: 'center' }}>Status</th>
                                                 {selected.kind === 'folder' && <th style={{ ...thStyle, width: 40 }} />}
@@ -488,11 +737,13 @@ export default function PatientListFolders() {
                                                 ))}
                                             </tbody>
                                         </table>
+                                        </div>
                                     </div>
                                 </>
                             )}
                         </div>
 
+                        </div>
                     </div>
                 </main>
             </div>
