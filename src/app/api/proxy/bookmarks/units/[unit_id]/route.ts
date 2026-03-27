@@ -1,0 +1,56 @@
+import { getProxyHeaders } from '@/lib/proxy-auth';
+import { NextRequest, NextResponse } from 'next/server';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+
+// POST /bookmarks/units/:unit_id — Bookmark a care unit
+export async function POST(
+    req: NextRequest,
+    { params }: { params: Promise<{ unit_id: string }> }
+) {
+    try {
+        const { unit_id } = await params;
+        const res = await fetch(`${API_BASE_URL}/api/v1/bookmarks/units/${unit_id}`, {
+            method: 'POST',
+            headers: getProxyHeaders(req),
+        });
+        if (res.status === 204) return new NextResponse(null, { status: 204 });
+        const text = await res.text();
+        let data: unknown = {};
+        if (text.trim()) {
+            try { data = JSON.parse(text); } catch {
+                return NextResponse.json({ error: 'Backend returned invalid response' }, { status: 502 });
+            }
+        }
+        return NextResponse.json(data, { status: res.status });
+    } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        return NextResponse.json({ error: 'Proxy error', details: message }, { status: 500 });
+    }
+}
+
+// DELETE /bookmarks/units/:unit_id — Remove bookmark
+export async function DELETE(
+    req: NextRequest,
+    { params }: { params: Promise<{ unit_id: string }> }
+) {
+    try {
+        const { unit_id } = await params;
+        const res = await fetch(`${API_BASE_URL}/api/v1/bookmarks/units/${unit_id}`, {
+            method: 'DELETE',
+            headers: getProxyHeaders(req),
+        });
+        if (res.status === 204) return new NextResponse(null, { status: 204 });
+        const text = await res.text();
+        let data: unknown = {};
+        if (text.trim()) {
+            try { data = JSON.parse(text); } catch {
+                return NextResponse.json({ error: 'Backend returned invalid response' }, { status: 502 });
+            }
+        }
+        return NextResponse.json(data, { status: res.status });
+    } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        return NextResponse.json({ error: 'Proxy error', details: message }, { status: 500 });
+    }
+}
