@@ -55,8 +55,21 @@ export default function DashboardPage() {
     const [allowedExternalDomains, setAllowedExternalDomains] = useState<string[]>([]);
     const [newDomain, setNewDomain] = useState('');
     const [settingsChanged, setSettingsChanged] = useState(false);
+    const [deptSearch, setDeptSearch] = useState('');
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+    const filteredDepartments = departments.filter(d => {
+        const query = deptSearch.toLowerCase();
+        if (!query) return true;
+        // Search in department name
+        if (d.name.toLowerCase().includes(query)) return true;
+        // Search in floors
+        if (d.floors?.some(f => f.name.toLowerCase().includes(query))) return true;
+        // Search in wards
+        if (d.wards?.some(w => w.name.toLowerCase().includes(query))) return true;
+        return false;
+    });
 
     const fetchData = useCallback(async () => {
         try {
@@ -380,10 +393,55 @@ export default function DashboardPage() {
                                     </div>
                                 )}
 
+                                {/* Search Input */}
+                                <div style={{ position: 'relative', marginBottom: 12 }}>
+                                    <span className="material-icons-round" style={{
+                                        position: 'absolute',
+                                        left: 10,
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        fontSize: 16,
+                                        color: 'var(--text-muted)',
+                                        pointerEvents: 'none',
+                                    }}>search</span>
+                                    <input
+                                        className="input"
+                                        type="text"
+                                        placeholder="Search departments, floors, wards..."
+                                        value={deptSearch}
+                                        onChange={e => setDeptSearch(e.target.value)}
+                                        style={{
+                                            fontSize: 12,
+                                            paddingLeft: 34,
+                                            height: 36,
+                                        }}
+                                    />
+                                    {deptSearch && (
+                                        <button
+                                            onClick={() => setDeptSearch('')}
+                                            style={{
+                                                position: 'absolute',
+                                                right: 8,
+                                                top: '50%',
+                                                transform: 'translateY(-50%)',
+                                                background: 'none',
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                padding: 4,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                color: 'var(--text-muted)',
+                                            }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
+                                        </button>
+                                    )}
+                                </div>
+
                                 <div style={{ display: 'flex', gap: 12, flex: 1, minHeight: 0 }}>
                                     {/* Department List */}
                                     <div style={{ width: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                        {departments.map(d => (
+                                        {filteredDepartments.map(d => (
                                             <div key={d.id} onClick={() => { setEditingDept(d.id); setNewWard(''); setNewFloor(''); }}
                                                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: editingDept === d.id ? '#edf1f7' : 'transparent', border: `1px solid ${editingDept === d.id ? 'var(--helix-primary)' : 'transparent'}`, transition: 'all 0.15s' }}>
                                                 <span className="material-icons-round" style={{ fontSize: 16, color: editingDept === d.id ? 'var(--helix-primary)' : 'var(--text-muted)' }}>domain</span>
@@ -395,6 +453,12 @@ export default function DashboardPage() {
                                         ))}
                                         {departments.length === 0 && (
                                             <div style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>No departments yet</div>
+                                        )}
+                                        {departments.length > 0 && filteredDepartments.length === 0 && (
+                                            <div style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
+                                                <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 4, color: 'var(--text-disabled)' }}>search_off</span>
+                                                No matches found
+                                            </div>
                                         )}
                                     </div>
 

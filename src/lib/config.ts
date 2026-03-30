@@ -35,6 +35,7 @@ export const API_ENDPOINTS = {
   // Roles
   ROLES: `/api/proxy/roles`,
   ROLE: (id: string) => `/api/proxy/roles/${id}`,
+  ROLE_SIGN_IN_USER: (id: string) => `/api/proxy/roles/${id}/sign-in-user`,
 
   // Escalation Policies
   ESCALATION_POLICIES: `/api/proxy/escalation-policies`,

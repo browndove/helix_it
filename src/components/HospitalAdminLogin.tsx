@@ -367,11 +367,6 @@ export default function HospitalAdminLogin() {
                                                 <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                     {f.name}
                                                 </div>
-                                                {f.user_count !== undefined && (
-                                                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}>
-                                                        {f.user_count} {f.user_count === 1 ? 'user' : 'users'}
-                                                    </div>
-                                                )}
                                             </div>
                                             <span className="material-icons-round" style={{
                                                 fontSize: 18,

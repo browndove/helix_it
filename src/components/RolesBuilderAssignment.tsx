@@ -443,6 +443,10 @@ export default function RolesBuilderAssignment() {
     const [expandedChainRoleId, setExpandedChainRoleId] = useState<string | null>(null);
     // Expanded "other chains" in detail panel
     const [showOtherChains, setShowOtherChains] = useState(false);
+    // Sign-in staff state
+    const [showSignIn, setShowSignIn] = useState(false);
+    const [signInUserId, setSignInUserId] = useState<string | null>(null);
+    const [signInLoading, setSignInLoading] = useState(false);
 
     // Compute chain associations for every role: map role name → array of { source, levels }
     const chainsByRole = useMemo(() => {
@@ -524,9 +528,10 @@ export default function RolesBuilderAssignment() {
                 setRoles(rolesArr.map((r: Role & { department_id?: string; department_name?: string; department?: unknown }) => {
                     const policy = policyByRole.get(r.id);
                     const policyLevels = policy ? stepsToLevels(policy.steps || [], roleNameMap) : [];
+                    const deptResolved = resolveRoleDepartment(r as unknown as Record<string, unknown>, deptMap);
                     return normalizeRoleForUi({
                         ...r,
-                        department: resolveRoleDepartment(r as unknown as Record<string, unknown>, deptMap),
+                        department: typeof deptResolved === 'string' ? deptResolved : '',
                         escalation_routing: r.escalation_routing || [],
                         escalation_levels: policyLevels,
                     });
@@ -950,8 +955,8 @@ export default function RolesBuilderAssignment() {
                 return {
                     ...normalizeRoleForUi({ ...r, ...updated }),
                     department: responseDeptName,
-                    sign_in_restricted: Boolean(updated.sign_in_restricted),
-                    sign_in_allowed_user_ids: Array.isArray(updated.sign_in_allowed_user_ids) ? updated.sign_in_allowed_user_ids : [],
+                    sign_in_restricted: updated.sign_in_restricted !== undefined ? Boolean(updated.sign_in_restricted) : editRestricted,
+                    sign_in_allowed_user_ids: Array.isArray(updated.sign_in_allowed_user_ids) ? updated.sign_in_allowed_user_ids : (editRestricted ? editAllowedUserIds : []),
                     escalation_routing: updated.escalation_routing || editRouting,
                     escalation_levels: finalLevels,
                 };
@@ -1000,13 +1005,15 @@ export default function RolesBuilderAssignment() {
                 {restricted && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(59,130,246,0.04)', border: '1px solid rgba(59,130,246,0.15)' }}>
                         <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                            Select one staff member allowed to hold this role.
+                            Select staff members allowed to hold this role.
                         </div>
                         <CustomSelect
                             value=""
                             onChange={(v) => {
                                 if (!v) return;
-                                setAllowedUserIds([v]);
+                                if (!allowedUserIds.includes(v)) {
+                                    setAllowedUserIds([...allowedUserIds, v]);
+                                }
                             }}
                             options={staffOptions
                                 .filter(s => !allowedUserIds.includes(s.id))
@@ -1015,15 +1022,14 @@ export default function RolesBuilderAssignment() {
                         />
                         {allowedUserIds.length > 0 ? (
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                {(() => {
-                                    const uid = allowedUserIds[0];
+                                {allowedUserIds.map(uid => {
                                     const staff = staffOptions.find(s => s.id === uid);
                                     return (
                                         <span key={uid} className="badge badge-info" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, paddingRight: 4 }}>
                                             {staff?.label || uid}
                                             <button
                                                 type="button"
-                                                onClick={() => setAllowedUserIds([])}
+                                                onClick={() => setAllowedUserIds(allowedUserIds.filter(id => id !== uid))}
                                                 style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'inherit', display: 'inline-flex', alignItems: 'center', padding: 0 }}
                                                 title="Remove"
                                             >
@@ -1031,7 +1037,7 @@ export default function RolesBuilderAssignment() {
                                             </button>
                                         </span>
                                     );
-                                })()}
+                                })}
                             </div>
                         ) : (
                             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
@@ -1617,7 +1623,7 @@ export default function RolesBuilderAssignment() {
                                             const chainCount = associatedChains.length;
                                             const isChainExpanded = expandedChainRoleId === role.id;
                                             return (
-                                                <tr key={role.id} onClick={() => { setSelectedId(role.id); setShowOtherChains(false); }} style={{ cursor: 'pointer', background: selectedId === role.id ? '#edf1f7' : undefined }}>
+                                                <tr key={role.id} onClick={() => { setSelectedId(role.id); setShowOtherChains(false); setShowSignIn(false); setSignInUserId(null); }} style={{ cursor: 'pointer', background: selectedId === role.id ? '#edf1f7' : undefined }}>
                                                     <td style={{ padding: '12px 16px', position: 'relative' }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                                             <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>{role.name}</div>
@@ -1837,6 +1843,91 @@ export default function RolesBuilderAssignment() {
                                             </div>
                                         </div>
                                     </div>
+                                </div>
+
+                                {/* Sign In Staff Action */}
+                                <div className="card" style={{ padding: '16px 20px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: showSignIn ? 12 : 0 }}>
+                                        <h4 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>Sign In Staff</h4>
+                                        <button
+                                            className={`btn ${showSignIn ? 'btn-secondary' : 'btn-primary'} btn-xs`}
+                                            onClick={() => { setShowSignIn(!showSignIn); setSignInUserId(null); }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 13 }}>{showSignIn ? 'close' : 'login'}</span>
+                                            {showSignIn ? 'Cancel' : 'Sign In'}
+                                        </button>
+                                    </div>
+                                    {showSignIn && (
+                                        <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                                Select a staff member to sign into this role. If someone is already signed in, they will be replaced.
+                                            </div>
+                                            <CustomSelect
+                                                value={signInUserId || ''}
+                                                onChange={v => setSignInUserId(v || null)}
+                                                options={(() => {
+                                                    const allowed = selectedRole.sign_in_allowed_user_ids || [];
+                                                    const isRestricted = selectedRole.sign_in_restricted || allowed.length > 0;
+                                                    const filtered = isRestricted ? staffOptions.filter(s => allowed.includes(s.id)) : staffOptions;
+                                                    return filtered.map(s => ({ label: s.label, value: s.id }));
+                                                })()}
+                                                placeholder={(() => {
+                                                    const allowed = selectedRole.sign_in_allowed_user_ids || [];
+                                                    const isRestricted = selectedRole.sign_in_restricted || allowed.length > 0;
+                                                    if (isRestricted && allowed.length === 0) return '-- No allowed staff configured --';
+                                                    return '-- Select staff member --';
+                                                })()}
+                                            />
+                                            {signInUserId && (() => {
+                                                const staff = staffOptions.find(s => s.id === signInUserId);
+                                                return (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--helix-primary)' }}>
+                                                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--helix-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                                                            {staffNameOnly(staff?.label || '').split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                                        </div>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: 12.5, fontWeight: 600 }}>{staffNameOnly(staff?.label || signInUserId)}</div>
+                                                        </div>
+                                                        <button
+                                                            className="btn btn-primary btn-xs"
+                                                            disabled={signInLoading}
+                                                            onClick={async () => {
+                                                                setSignInLoading(true);
+                                                                try {
+                                                                    const res = await fetch(`/api/proxy/roles/${selectedRole.id}/sign-in-user`, {
+                                                                        method: 'POST',
+                                                                        headers: { 'Content-Type': 'application/json' },
+                                                                        body: JSON.stringify({ user_id: signInUserId }),
+                                                                    });
+                                                                    if (!res.ok) {
+                                                                        showToast('Failed to sign in staff');
+                                                                        setSignInLoading(false);
+                                                                        return;
+                                                                    }
+                                                                    const updated = await res.json();
+                                                                    setRoles(prev => prev.map(r => r.id === selectedRole.id ? {
+                                                                        ...r,
+                                                                        signed_in_user: updated.signed_in_user || { id: signInUserId, first_name: staffNameOnly(staff?.label || '').split(' ')[0], last_name: staffNameOnly(staff?.label || '').split(' ').slice(1).join(' ') },
+                                                                        signed_in_by: updated.signed_in_by || undefined,
+                                                                    } : r));
+                                                                    showToast(`${staffNameOnly(staff?.label || 'Staff')} signed into ${selectedRole.name}`);
+                                                                    setShowSignIn(false);
+                                                                    setSignInUserId(null);
+                                                                } catch {
+                                                                    showToast('Failed to sign in staff');
+                                                                }
+                                                                setSignInLoading(false);
+                                                            }}
+                                                            style={{ padding: '4px 12px' }}
+                                                        >
+                                                            <span className="material-icons-round" style={{ fontSize: 12 }}>login</span>
+                                                            {signInLoading ? 'Signing in...' : 'Confirm'}
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Escalation Summary — own chain + collapsible other chains */}

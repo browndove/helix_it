@@ -108,7 +108,19 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 last_name: lastName,
                 email: String(r.email || ''),
                 job_title: String(r.job_title || r.role || 'Staff'),
-                dept: String(r.department_name || r.department || r.dept || 'Unassigned'),
+                dept: (() => {
+                    const dName = String(r.department_name || '').trim();
+                    if (dName) return dName;
+                    const dRaw = r.department;
+                    if (dRaw && typeof dRaw === 'object' && !Array.isArray(dRaw)) {
+                        const nested = dRaw as Record<string, unknown>;
+                        const nestedName = String(nested.name || nested.department_name || '').trim();
+                        if (nestedName) return nestedName;
+                    }
+                    if (typeof dRaw === 'string' && dRaw.trim()) return dRaw.trim();
+                    const deptFallback = String(r.dept || '').trim();
+                    return deptFallback || 'Unassigned';
+                })(),
                 status: normalizedStatus,
                 access: String(r.system_role || r.access || 'Staff'),
                 employee_id: String(r.employee_id || r.username || id),
@@ -118,7 +130,7 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 dob: String(r.dob || '').trim(),
                 gender: String(r.gender || '').trim().toLowerCase(),
                 title: String(r.title || r.job_title || '').trim(),
-                highest_qualification: String(r.highest_qualification || r.qualification || '').trim(),
+                highest_qualification: String(r.highest_qualifications || r.highest_qualification || r.qualification || '').trim(),
                 is_doctor: Boolean(r.is_doctor ?? String(r.title_prefix || '').toLowerCase() === 'dr'),
             };
         })
@@ -512,6 +524,7 @@ export default function StaffDirectoryManagement() {
                     job_title: (newRole || 'Staff').trim(),
                     highest_qualification: newHighestQualification.trim() || undefined,
                     is_doctor: newIsDoctor === 'dr',
+                    patient_access: newPatientAccess,
                     role: 'staff',
                     department: newDept,
                 }),
@@ -540,9 +553,25 @@ export default function StaffDirectoryManagement() {
                 employee_id: '',
                 patient_access: newPatientAccess,
                 role: 'staff',
+                phone: newPhone.trim() ? formatGhanaPhoneInput(newPhone) : '',
+                dob: newDob.trim(),
+                gender: newGender.trim(),
             };
 
-            setStaff(prev => [created || fallbackMember, ...prev]);
+            // Merge form values into parsed result for fields the backend may not return
+            const member: StaffMember = created
+                ? {
+                    ...created,
+                    dept: (!created.dept || created.dept === 'Unassigned') ? newDept : created.dept,
+                    highest_qualification: created.highest_qualification || newHighestQualification.trim(),
+                    dob: created.dob || newDob.trim(),
+                    gender: created.gender || newGender.trim(),
+                    is_doctor: created.is_doctor || newIsDoctor === 'dr',
+                    patient_access: created.patient_access ?? newPatientAccess,
+                }
+                : fallbackMember;
+
+            setStaff(prev => [member, ...prev]);
             setShowAddForm(false);
             setNewFirstName('');
             setNewLastName('');
@@ -960,18 +989,18 @@ export default function StaffDirectoryManagement() {
 
                         {/* Detail Panel */}
                         {selected && (
-                            <div className="slide-in-right" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                                <div className="card" style={{ padding: '18px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-                                        <div>
-                                            <h3 style={{ fontSize: 15 }}>{selected.first_name} {selected.last_name}</h3>
-                                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{selected.job_title} · {selected.dept}</div>
+                            <div className="slide-in-right" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+                                <div className="card" style={{ padding: '20px 22px', overflow: 'hidden' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, gap: 8 }}>
+                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                            <h3 style={{ fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.first_name} {selected.last_name}</h3>
+                                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.job_title} · {selected.dept}</div>
                                         </div>
-                                        <button className="btn btn-ghost btn-xs" onClick={() => { setEditingSelected(false); setSelected(null); }}>
+                                        <button className="btn btn-ghost btn-xs" style={{ flexShrink: 0 }} onClick={() => { setEditingSelected(false); setSelected(null); }}>
                                             <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
                                         </button>
                                     </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                                         <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                                             Profile Details
                                         </div>
@@ -984,24 +1013,24 @@ export default function StaffDirectoryManagement() {
                                             {editingSelected ? 'Cancel Edit' : 'Edit'}
                                         </button>
                                     </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                                        <div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px 14px' }}>
+                                        <div style={{ minWidth: 0 }}>
                                             <label className="label">First Name</label>
-                                            <input className="input" value={editFirstName} onChange={e => setEditFirstName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12 }} />
+                                            <input className="input" value={editFirstName} onChange={e => setEditFirstName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box' }} />
                                         </div>
-                                        <div>
+                                        <div style={{ minWidth: 0 }}>
                                             <label className="label">Last Name</label>
-                                            <input className="input" value={editLastName} onChange={e => setEditLastName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12 }} />
+                                            <input className="input" value={editLastName} onChange={e => setEditLastName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box' }} />
                                         </div>
-                                        <div style={{ gridColumn: '1 / -1' }}>
+                                        <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
                                             <label className="label">Email</label>
-                                            <input className="input" value={editEmail} onChange={e => setEditEmail(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12 }} />
+                                            <input className="input" value={editEmail} onChange={e => setEditEmail(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box', textOverflow: 'ellipsis' }} />
                                         </div>
-                                        <div>
+                                        <div style={{ minWidth: 0 }}>
                                             <label className="label">Phone</label>
-                                            <input className="input" value={editPhone} onChange={e => setEditPhone(formatGhanaPhoneInput(e.target.value))} disabled={!editingSelected || savingEdit} style={{ fontSize: 12 }} />
+                                            <input className="input" value={editPhone} onChange={e => setEditPhone(formatGhanaPhoneInput(e.target.value))} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box', textOverflow: 'ellipsis' }} />
                                         </div>
-                                        <div>
+                                        <div style={{ minWidth: 0 }}>
                                             <label className="label">DOB</label>
                                             <DatePicker
                                                 value={editDob}
@@ -1010,7 +1039,7 @@ export default function StaffDirectoryManagement() {
                                                 disabled={!editingSelected || savingEdit}
                                             />
                                         </div>
-                                        <div>
+                                        <div style={{ minWidth: 0 }}>
                                             <label className="label">Gender</label>
                                             <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
                                                 <CustomSelect
@@ -1025,7 +1054,7 @@ export default function StaffDirectoryManagement() {
                                                 />
                                             </div>
                                         </div>
-                                        <div>
+                                        <div style={{ minWidth: 0 }}>
                                             <label className="label">Department</label>
                                             <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
                                                 <CustomSelect
@@ -1037,7 +1066,7 @@ export default function StaffDirectoryManagement() {
                                                 />
                                             </div>
                                         </div>
-                                        <div>
+                                        <div style={{ minWidth: 0 }}>
                                             <label className="label">Title</label>
                                             <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
                                                 <CustomSelect
@@ -1050,7 +1079,7 @@ export default function StaffDirectoryManagement() {
                                                 />
                                             </div>
                                         </div>
-                                        <div>
+                                        <div style={{ minWidth: 0 }}>
                                             <label className="label">Highest Qualification</label>
                                             <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
                                                 <CustomSelect
@@ -1063,7 +1092,7 @@ export default function StaffDirectoryManagement() {
                                                 />
                                             </div>
                                         </div>
-                                        <div>
+                                        <div style={{ minWidth: 0 }}>
                                             <label className="label">Is Doctor</label>
                                             <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
                                                 <CustomSelect
@@ -1077,16 +1106,16 @@ export default function StaffDirectoryManagement() {
                                                 />
                                             </div>
                                         </div>
-                                        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-disabled)' }}>fingerprint</span>
-                                                <div>
+                                        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, gap: 8 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                                <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-disabled)', flexShrink: 0 }}>fingerprint</span>
+                                                <div style={{ minWidth: 0 }}>
                                                     <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>Employee ID</div>
-                                                    <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600 }}>{selected.employee_id}</div>
+                                                    <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.employee_id}</div>
                                                 </div>
                                             </div>
                                             {editingSelected && (
-                                                <button className="btn btn-primary btn-sm" onClick={handleSaveSelected} disabled={savingEdit}>
+                                                <button className="btn btn-primary btn-sm" style={{ flexShrink: 0 }} onClick={handleSaveSelected} disabled={savingEdit}>
                                                     <span className="material-icons-round" style={{ fontSize: 14 }}>{savingEdit ? 'hourglass_empty' : 'save'}</span>
                                                     {savingEdit ? 'Saving...' : 'Save Changes'}
                                                 </button>

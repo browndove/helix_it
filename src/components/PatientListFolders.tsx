@@ -6,324 +6,412 @@ import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
 import CustomSelect from '@/components/CustomSelect';
 
-/* ── Types ─────────────────────────────────────────────────── */
-
 type Patient = {
-    id: string; first_name: string; last_name: string; email: string; phone: string;
-    medical_record_number: string; department_id: string; department_name: string;
-    age?: number; unit: string; unit_id: string; care_unit_name: string;
-    provider_team_id: string; care_provider_team_name: string;
-    room: string; bed: string; room_bed_display: string; status: string;
-    admitted_date: string; discharge_date: string; dob: string; gender: string;
-    care_unit?: Record<string, unknown>; care_provider_team?: Record<string, unknown>;
+    id: string;
+    first_name: string;
+    last_name: string;
+    medical_record_number: string;
+    status: string;
+    room: string;
+    bed: string;
+    care_unit_name: string;
 };
 
-type Folder = { id: string; name: string; description?: string; patients: FolderPatient[]; patient_count: number };
-type FolderPatient = { id: string; first_name: string; last_name: string; medical_record_number: string; status: string; room: string; bed: string; care_unit_name: string };
-type UnitLookup = { id: string; name: string };
-
-type CareSummary = {
-    total_patients: number; patients_with_unit: number; patients_without_unit: number;
-    patients_with_provider_team: number; patients_without_provider_team: number;
-    by_unit: { unit_id: string; unit_name: string; patient_count: number }[];
-    by_provider_team: { provider_team_id: string; team_name: string; patient_count: number }[];
+type Folder = {
+    id: string;
+    name: string;
+    description: string;
+    patientCount: number;
+    patients: Patient[];
+    createdAt: string;
 };
 
-type SelectedItem = { kind: 'unit'; id: string; name: string } | { kind: 'folder'; id: string; name: string };
+function parsePatients(raw: unknown): Patient[] {
+    const list = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object'
+            ? ((raw as { items?: unknown; data?: unknown; patients?: unknown }).items
+                || (raw as { items?: unknown; data?: unknown; patients?: unknown }).data
+                || (raw as { items?: unknown; data?: unknown; patients?: unknown }).patients)
+            : []);
+    if (!Array.isArray(list)) return [];
 
-/* ── Helpers ───────────────────────────────────────────────── */
-
-const R = (v: unknown) => (v && typeof v === 'object' ? v as Record<string, unknown> : {});
-const S = (v: unknown, fb = '') => String(v ?? fb);
-const N = (v: unknown) => (typeof v === 'number' ? v : 0);
-
-function extractList(raw: unknown): unknown[] {
-    if (Array.isArray(raw)) return raw;
-    const r = R(raw);
-    if (Array.isArray(r.items)) return r.items;
-    if (Array.isArray(r.data)) return r.data;
-    if (Array.isArray(r.folders)) return r.folders;
-    if (Array.isArray(r.patient_folders)) return r.patient_folders;
-
-    // Some endpoints return { data: { items: [...] } } or { data: { data: [...] } }
-    const dataObj = r.data && typeof r.data === 'object' && !Array.isArray(r.data) ? R(r.data) : null;
-    if (dataObj) {
-        if (Array.isArray(dataObj.items)) return dataObj.items;
-        if (Array.isArray(dataObj.data)) return dataObj.data;
-    }
-    return [];
+    return list
+        .map((p: unknown, idx) => {
+            if (!p || typeof p !== 'object') return null;
+            const rec = p as Record<string, unknown>;
+            return {
+                id: String(rec.id || rec.patient_id || `p-${idx}`),
+                first_name: String(rec.first_name || '').trim(),
+                last_name: String(rec.last_name || '').trim(),
+                medical_record_number: String(rec.medical_record_number || rec.mrn || ''),
+                status: String(rec.status || 'admitted'),
+                room: String(rec.room || ''),
+                bed: String(rec.bed || ''),
+                care_unit_name: String(rec.care_unit_name || ''),
+            };
+        })
+        .filter((p): p is Patient => Boolean(p));
 }
 
-function parsePatient(row: unknown, idx: number): Patient | null {
-    if (!row || typeof row !== 'object') return null;
-    const r = row as Record<string, unknown>;
-    const id = S(r.id || r.patient_id, `p-${idx}`);
-    if (!id || (id === `p-${idx}` && !r.id)) return null;
-    const cu = R(r.care_unit); const cpt = R(r.care_provider_team);
-    return {
-        id, first_name: S(r.first_name, 'Unknown'), last_name: S(r.last_name, 'Patient'), email: S(r.email), phone: S(r.phone),
-        medical_record_number: S(r.medical_record_number || r.mrn), department_id: S(r.department_id), department_name: S(r.department_name, 'Unassigned'),
-        age: typeof r.age === 'number' ? r.age : undefined, unit: S(r.unit), unit_id: S(r.unit_id),
-        care_unit_name: S(r.care_unit_name || cu.name), provider_team_id: S(r.provider_team_id),
-        care_provider_team_name: S(r.care_provider_team_name || cpt.name), room: S(r.room), bed: S(r.bed),
-        room_bed_display: S(r.room_bed_display), status: S(r.status, 'admitted'), admitted_date: S(r.admitted_date),
-        discharge_date: S(r.discharge_date), dob: S(r.dob), gender: S(r.gender),
-        care_unit: cu.id ? cu : undefined, care_provider_team: cpt.id ? cpt : undefined,
-    };
+function parseFolders(raw: unknown): Folder[] {
+    const list = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object'
+            ? ((raw as { items?: unknown; data?: unknown; folders?: unknown }).items
+                || (raw as { items?: unknown; data?: unknown; folders?: unknown }).data
+                || (raw as { items?: unknown; data?: unknown; folders?: unknown }).folders)
+            : []);
+    if (!Array.isArray(list)) return [];
+
+    return list
+        .map((f: unknown, idx): Folder | null => {
+            if (!f || typeof f !== 'object') return null;
+            const rec = f as Record<string, unknown>;
+            const patientsRaw = Array.isArray(rec.patients) ? rec.patients as Record<string, unknown>[] : [];
+
+            return {
+                id: String(rec.id || `f-${idx}`),
+                name: String(rec.name || 'Unnamed Folder'),
+                description: String(rec.description || ''),
+                patientCount: Number(rec.patient_count || patientsRaw.length || 0),
+                createdAt: String(rec.created_at || '').slice(0, 10),
+                patients: patientsRaw.map((p, pIdx) => ({
+                    id: String(p.id || `p-${pIdx}`),
+                    first_name: String(p.first_name || ''),
+                    last_name: String(p.last_name || ''),
+                    medical_record_number: String(p.medical_record_number || p.mrn || ''),
+                    status: String(p.status || 'admitted'),
+                    room: String(p.room || ''),
+                    bed: String(p.bed || ''),
+                    care_unit_name: String(p.care_unit_name || ''),
+                })),
+            };
+        })
+        .filter((f): f is Folder => Boolean(f));
 }
 
-function parsePaged(raw: unknown) {
-    const rec = R(raw);
-    const items = extractList(raw).map(parsePatient).filter((p): p is Patient => Boolean(p));
-    return { items, total: N(rec.total) || items.length, totalPages: N(rec.total_pages) || 1 };
-}
-
-function parseFolder(x: unknown): Folder | null {
-    const r = R(x); const id = S(r.id).trim(); if (!id) return null;
-    const pats = Array.isArray(r.patients) ? r.patients.map((p: unknown) => {
-        const pr = R(p);
-        return { id: S(pr.id || pr.patient_id), first_name: S(pr.first_name), last_name: S(pr.last_name), medical_record_number: S(pr.medical_record_number || pr.mrn), status: S(pr.status, 'admitted'), room: S(pr.room), bed: S(pr.bed), care_unit_name: S(pr.care_unit_name) } as FolderPatient;
-    }).filter(p => p.id) : [];
-    return { id, name: S(r.name, 'Untitled Folder').trim(), description: S(r.description).trim(), patients: pats, patient_count: N(r.patient_count) || pats.length };
-}
-
-function parseFolders(raw: unknown): Folder[] { return extractList(raw).map(parseFolder).filter((f): f is Folder => Boolean(f)); }
-
-function parseCareSummary(raw: unknown): CareSummary | null {
-    const r = R(raw);
-    if (!r.total_patients && r.total_patients !== 0) return null;
-    return {
-        total_patients: N(r.total_patients), patients_with_unit: N(r.patients_with_unit), patients_without_unit: N(r.patients_without_unit),
-        patients_with_provider_team: N(r.patients_with_provider_team), patients_without_provider_team: N(r.patients_without_provider_team),
-        by_unit: Array.isArray(r.by_unit) ? r.by_unit.map((u: unknown) => { const ur = R(u); return { unit_id: S(ur.unit_id), unit_name: S(ur.unit_name), patient_count: N(ur.patient_count) }; }) : [],
-        by_provider_team: Array.isArray(r.by_provider_team) ? r.by_provider_team.map((t: unknown) => { const tr = R(t); return { provider_team_id: S(tr.provider_team_id), team_name: S(tr.team_name), patient_count: N(tr.patient_count) }; }) : [],
-    };
-}
-
-const statusBadge = (s: string) => s === 'admitted' ? 'badge-critical' : s === 'discharged' ? 'badge-neutral' : 'badge-info';
-const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' };
-const tdStyle: React.CSSProperties = { padding: '10px 14px', fontSize: 12.5 };
-
-/* ── Component ─────────────────────────────────────────────── */
+const statusColor: Record<string, string> = {
+    admitted: 'var(--critical)',
+    discharged: 'var(--text-muted)',
+    transferred: 'var(--warning)',
+};
 
 export default function PatientListFolders() {
-    const [toast, setToast] = useState<string | null>(null);
-    const showToast = useCallback((msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2400); }, []);
-
-    const [units, setUnits] = useState<UnitLookup[]>([]);
-    const [summary, setSummary] = useState<CareSummary | null>(null);
-
     const [folders, setFolders] = useState<Folder[]>([]);
-    const [foldersLoading, setFoldersLoading] = useState(true);
-    const [selected, setSelected] = useState<SelectedItem | null>(null);
-    const [folderPatients, setFolderPatients] = useState<FolderPatient[]>([]);
-    const [fpLoading, setFpLoading] = useState(false);
+    const [allPatients, setAllPatients] = useState<Patient[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+    const [search, setSearch] = useState('');
+    const [toast, setToast] = useState<string | null>(null);
+
+    // Create folder
+    const [showCreate, setShowCreate] = useState(false);
     const [newName, setNewName] = useState('');
     const [newDesc, setNewDesc] = useState('');
-    const [showCreate, setShowCreate] = useState(false);
-    const [renaming, setRenaming] = useState(false);
-    const [renameValue, setRenameValue] = useState('');
-    const [saving, setSaving] = useState(false);
+    const [newPatients, setNewPatients] = useState<{ id: string; name: string; mrn: string }[]>([]);
 
-    const [showAddPanel, setShowAddPanel] = useState(false);
-    const [addMode, setAddMode] = useState<'unit' | 'search'>('unit');
-    const [addUnitId, setAddUnitId] = useState('');
-    const [addPatients, setAddPatients] = useState<Patient[]>([]);
-    const [addLoading, setAddLoading] = useState(false);
-    const [addSearch, setAddSearch] = useState('');
-    const [addSearchResults, setAddSearchResults] = useState<Patient[]>([]);
-    const [addSearchLoading, setAddSearchLoading] = useState(false);
-    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    // Add patient
+    const [showAddPatient, setShowAddPatient] = useState(false);
+    const [patientSearch, setPatientSearch] = useState('');
+    const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
 
-    const selectedFolder = useMemo(() => selected?.kind === 'folder' ? folders.find(f => f.id === selected.id) || null : null, [folders, selected]);
+    // Edit folder
+    const [editingFolder, setEditingFolder] = useState(false);
+    const [editName, setEditName] = useState('');
+    const [editDesc, setEditDesc] = useState('');
 
-    /* ── Fetchers ──────────────────────────────────────────── */
+    const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
-    const fetchLookups = useCallback(async () => {
+    const fetchData = useCallback(async () => {
         try {
-            const [uRes, csRes] = await Promise.all([fetch('/api/proxy/units'), fetch('/api/proxy/patients/care-summary')]);
-            if (uRes.ok) { const u = await uRes.json(); setUnits(extractList(u).map((x: unknown) => { const r = R(x); return { id: S(r.id), name: S(r.name) }; }).filter((u: UnitLookup) => u.id && u.name)); }
-            if (csRes.ok) { const cs = await csRes.json(); setSummary(parseCareSummary(cs)); }
-        } catch { /* best effort */ }
-    }, []);
-
-    const fetchFolders = useCallback(async () => {
-        setFoldersLoading(true);
-        try {
-            const res = await fetch('/api/proxy/patient-folders');
-            if (res.ok) { const parsed = parseFolders(await res.json()); setFolders(parsed); }
-        } catch { /* silent */ }
-        setFoldersLoading(false);
-    }, []);
-
-    const fetchFolderPatients = useCallback(async (folderId: string) => {
-        setFpLoading(true);
-        try {
-            const res = await fetch(`/api/proxy/patient-folders/${folderId}`);
-            if (res.ok) {
-                const folder = parseFolder(await res.json());
-                if (folder) {
-                    setFolderPatients(folder.patients);
-                    setFolders(prev => prev.map(f => f.id === folderId ? { ...f, patients: folder.patients, patient_count: folder.patient_count || folder.patients.length } : f));
-                }
+            const [folderRes, patientRes] = await Promise.all([
+                fetch('/api/proxy/patient-folders'),
+                fetch('/api/proxy/patients/directory?page_size=100&page_id=1'),
+            ]);
+            if (folderRes.ok) {
+                const folderData = parseFolders(await folderRes.json());
+                setFolders(folderData);
             }
-        } catch { /* silent */ }
-        setFpLoading(false);
-    }, []);
-
-    const fetchUnitPatients = useCallback(async (uid: string) => {
-        if (!uid) return;
-        setFpLoading(true);
-        try {
-            // Backend directory endpoint does not reliably accept unit_id filtering in all deployments.
-            // Fetch a large slice of the facility directory and filter client-side by care_unit/unit_id.
-            const params = new URLSearchParams({ page_size: '200', page_id: '1', directory_scope: 'all' });
-            const res = await fetch(`/api/proxy/patients/directory?${params.toString()}`);
-            if (res.ok) {
-                const parsed = parsePaged(await res.json());
-                const filtered = parsed.items.filter(p => p.unit_id === uid || p.care_unit?.id === uid);
-                setFolderPatients(filtered.map(p => ({ id: p.id, first_name: p.first_name, last_name: p.last_name, medical_record_number: p.medical_record_number, status: p.status, room: p.room, bed: p.bed, care_unit_name: p.care_unit_name })));
-            } else {
-                setFolderPatients([]);
+            if (patientRes.ok) {
+                const patientData = parsePatients(await patientRes.json());
+                setAllPatients(patientData);
             }
         } catch {
-            setFolderPatients([]);
+            showToast('Failed to load patient folders');
         }
-        setFpLoading(false);
+        setLoading(false);
     }, []);
 
-    const fetchAddUnitPatients = useCallback(async (uid: string) => {
-        if (!uid) { setAddPatients([]); return; }
-        setAddLoading(true);
-        try {
-            const params = new URLSearchParams({ page_size: '200', page_id: '1', directory_scope: 'all' });
-            const res = await fetch(`/api/proxy/patients/directory?${params.toString()}`);
-            if (res.ok) {
-                const parsed = parsePaged(await res.json());
-                setAddPatients(parsed.items.filter(p => p.unit_id === uid || p.care_unit?.id === uid));
-            } else {
-                setAddPatients([]);
-            }
-        } catch {
-            setAddPatients([]);
-        }
-        setAddLoading(false);
-    }, []);
+    useEffect(() => { fetchData(); }, [fetchData]);
 
-    const searchAddPatients = useCallback(async () => {
-        const query = addSearch.trim();
-        if (!query) { setAddSearchResults([]); return; }
-        setAddSearchLoading(true);
-        try {
-            const params = new URLSearchParams({ q: query, page_size: '50', page_id: '1' });
-            const res = await fetch(`/api/proxy/patients/search?${params.toString()}`);
-            if (res.ok) {
-                const parsed = parsePaged(await res.json());
-                setAddSearchResults(parsed.items);
-            } else {
-                setAddSearchResults([]);
-            }
-        } catch {
-            setAddSearchResults([]);
-        }
-        setAddSearchLoading(false);
-    }, [addSearch]);
+    const selectedFolder = folders.find(f => f.id === selectedFolderId) || null;
 
-    /* ── Effects ───────────────────────────────────────────── */
-
-    useEffect(() => { fetchLookups(); fetchFolders(); }, [fetchLookups, fetchFolders]);
-
+    // Fetch patients when a folder is selected
     useEffect(() => {
-        if (!selected) { setFolderPatients([]); return; }
-        if (selected.kind === 'folder') fetchFolderPatients(selected.id);
-        else fetchUnitPatients(selected.id);
-    }, [selected, fetchFolderPatients, fetchUnitPatients]);
+        if (!selectedFolderId) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(`/api/proxy/patient-folders/${selectedFolderId}`);
+                if (!res.ok || cancelled) return;
+                const data = await res.json();
+                const patientsList = Array.isArray(data.patients) ? data.patients : [];
+                if (!Array.isArray(patientsList) || cancelled) return;
+                const parsed: Patient[] = patientsList.map((p: Record<string, unknown>, i: number) => ({
+                    id: String(p.id || p.patient_id || `p-${i}`),
+                    first_name: String(p.first_name || ''),
+                    last_name: String(p.last_name || ''),
+                    medical_record_number: String(p.medical_record_number || p.mrn || ''),
+                    status: String(p.status || 'admitted'),
+                    room: String(p.room || ''),
+                    bed: String(p.bed || ''),
+                    care_unit_name: String(p.care_unit_name || ''),
+                }));
+                setFolders(prev => prev.map(f =>
+                    f.id === selectedFolderId ? { ...f, patients: parsed, patientCount: parsed.length } : f
+                ));
+            } catch { /* silent */ }
+        })();
+        return () => { cancelled = true; };
+    }, [selectedFolderId]);
 
-    useEffect(() => {
-        if (!showAddPanel) {
-            setAddPatients([]);
-            setAddSearchResults([]);
-            setSelectedIds(new Set());
+    const filtered = folders.filter(f => {
+        if (search.trim()) {
+            const q = search.toLowerCase();
+            return f.name.toLowerCase().includes(q) ||
+                f.description.toLowerCase().includes(q) ||
+                f.patients.some(p => `${p.first_name} ${p.last_name}`.toLowerCase().includes(q) ||
+                    p.medical_record_number.toLowerCase().includes(q));
+        }
+        return true;
+    });
+
+    const handleCreateFolder = async () => {
+        if (!newName.trim()) return;
+        const existing = folders.find(f => f.name.trim().toLowerCase() === newName.trim().toLowerCase());
+        if (existing) {
+            showToast(`Folder "${newName.trim()}" already exists`);
             return;
         }
-        if (addMode === 'unit') {
-            if (addUnitId) fetchAddUnitPatients(addUnitId);
-            else { setAddPatients([]); setSelectedIds(new Set()); }
-        } else {
-            setAddPatients([]);
+        try {
+            const res = await fetch('/api/proxy/patient-folders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: newName.trim(),
+                    description: newDesc.trim(),
+                    visibility: 'public',
+                }),
+            });
+            if (!res.ok) {
+                showToast('Failed to create folder');
+                return;
+            }
+
+            const created = await res.json();
+            const folderId = String(created.id || created.folder_id || '');
+
+            // POST all selected patients to /patient-folders/{id}/patients
+            if (newPatients.length > 0) {
+                try {
+                    const pRes = await fetch(`/api/proxy/patient-folders/${folderId}/patients`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ patient_ids: newPatients.map(p => p.id) }),
+                    });
+                    if (!pRes.ok) {
+                        console.error('Failed to add patients:', pRes.status);
+                    }
+                } catch (e) { console.error('Error adding patients:', e); }
+            }
+
+            // Re-fetch folder
+            let finalFolder: Folder | null = null;
+            try {
+                const [refetchRes, patientsRes] = await Promise.all([
+                    fetch(`/api/proxy/patient-folders/${folderId}`),
+                    fetch(`/api/proxy/patient-folders/${folderId}/patients`),
+                ]);
+                if (refetchRes.ok) {
+                    const refetched = await refetchRes.json();
+                    finalFolder = parseFolders([refetched])[0] || null;
+                }
+                if (finalFolder && patientsRes.ok) {
+                    const patientsData = await patientsRes.json();
+                    const patientsList = Array.isArray(patientsData) ? patientsData : (patientsData?.items || patientsData?.data || patientsData?.patients || []);
+                    if (Array.isArray(patientsList) && patientsList.length > 0) {
+                        finalFolder = {
+                            ...finalFolder,
+                            patients: patientsList.map((p: Record<string, unknown>, i: number) => ({
+                                id: String(p.id || p.patient_id || `p-${i}`),
+                                first_name: String(p.first_name || ''),
+                                last_name: String(p.last_name || ''),
+                                medical_record_number: String(p.medical_record_number || p.mrn || ''),
+                                status: String(p.status || 'admitted'),
+                                room: String(p.room || ''),
+                                bed: String(p.bed || ''),
+                                care_unit_name: String(p.care_unit_name || ''),
+                            })),
+                            patientCount: patientsList.length,
+                        };
+                    }
+                }
+            } catch { /* fall back to local data */ }
+
+            // Fallback: build from local data if re-fetch failed
+            if (!finalFolder) {
+                const parsed = parseFolders([created])[0];
+                if (parsed) {
+                    finalFolder = {
+                        ...parsed,
+                        patients: newPatients.map(p => ({
+                            id: p.id,
+                            first_name: p.name.split(' ')[0] || '',
+                            last_name: p.name.split(' ').slice(1).join(' ') || '',
+                            medical_record_number: p.mrn,
+                            status: 'admitted',
+                            room: '',
+                            bed: '',
+                            care_unit_name: '',
+                        })),
+                        patientCount: newPatients.length,
+                    };
+                }
+            }
+
+            if (finalFolder) {
+                setFolders(prev => [...prev, finalFolder!]);
+                setSelectedFolderId(finalFolder.id);
+            }
+            setShowCreate(false);
+            setNewName('');
+            setNewDesc('');
+            setNewPatients([]);
+            showToast(`Folder "${finalFolder?.name || newName.trim()}" created${newPatients.length > 0 ? ` with ${newPatients.length} patient${newPatients.length > 1 ? 's' : ''}` : ''}`);
+        } catch {
+            showToast('Failed to create folder');
         }
-    }, [addMode, addUnitId, fetchAddUnitPatients, showAddPanel]);
-
-    /* ── Folder Actions ────────────────────────────────────── */
-
-    const createFolder = async () => {
-        if (!newName.trim()) return; setSaving(true);
-        try {
-            const res = await fetch('/api/proxy/patient-folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newName.trim(), description: newDesc.trim() || undefined }) });
-            if (!res.ok) { showToast('Failed to create folder'); setSaving(false); return; }
-            const created = parseFolder(await res.json());
-            if (created) { setFolders(prev => [created, ...prev]); setSelected({ kind: 'folder', id: created.id, name: created.name }); }
-            setNewName(''); setNewDesc(''); setShowCreate(false); showToast('Folder created');
-        } catch { showToast('Failed to create folder'); } setSaving(false);
     };
 
-    const renameFolder = async () => {
-        if (!selectedFolder || !renameValue.trim()) return; setSaving(true);
+    const handleDeleteFolder = async (id: string) => {
+        const folder = folders.find(f => f.id === id);
         try {
-            const res = await fetch(`/api/proxy/patient-folders/${selectedFolder.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: renameValue.trim() }) });
-            if (!res.ok) { showToast('Failed to rename'); setSaving(false); return; }
-            setFolders(prev => prev.map(f => f.id === selectedFolder.id ? { ...f, name: renameValue.trim() } : f));
-            setRenaming(false); showToast('Folder renamed');
-        } catch { showToast('Failed to rename'); } setSaving(false);
+            const res = await fetch(`/api/proxy/patient-folders/${id}`, { method: 'DELETE' });
+            if (!res.ok) {
+                showToast('Failed to delete folder');
+                return;
+            }
+            setFolders(prev => prev.filter(f => f.id !== id));
+            if (selectedFolderId === id) setSelectedFolderId(null);
+            showToast(`Folder "${folder?.name}" deleted`);
+        } catch {
+            showToast('Failed to delete folder');
+        }
     };
 
-    const deleteFolder = async () => {
-        if (!selectedFolder) return; setSaving(true);
+    const existingPatientIds = selectedFolder ? selectedFolder.patients.map(p => p.id) : [];
+    const filteredPatients = allPatients.filter(p => {
+        if (existingPatientIds.includes(p.id.toString())) return false;
+        if (patientSearch.trim()) {
+            const q = patientSearch.toLowerCase();
+            return `${p.first_name} ${p.last_name}`.toLowerCase().includes(q) ||
+                p.medical_record_number.toLowerCase().includes(q);
+        }
+        return true;
+    });
+
+    const selectedPatient = allPatients.find(p => p.id === selectedPatientId) || null;
+
+    const handleAddPatient = async () => {
+        if (!selectedPatient || !selectedFolder) return;
         try {
-            const res = await fetch(`/api/proxy/patient-folders/${selectedFolder.id}`, { method: 'DELETE' });
-            if (!res.ok) { showToast('Failed to delete'); setSaving(false); return; }
-            const next = folders.filter(f => f.id !== selectedFolder.id);
-            setFolders(next); setSelected(null); showToast('Folder deleted');
-        } catch { showToast('Failed to delete'); } setSaving(false);
+            const res = await fetch(`/api/proxy/patient-folders/${selectedFolder.id}/patients`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ patient_ids: [selectedPatient.id] }),
+            });
+            if (!res.ok) {
+                showToast('Failed to add patient');
+                return;
+            }
+            const patient: Patient = {
+                id: selectedPatient.id.toString(),
+                first_name: selectedPatient.first_name,
+                last_name: selectedPatient.last_name,
+                medical_record_number: selectedPatient.medical_record_number,
+                status: selectedPatient.status,
+                room: selectedPatient.room,
+                bed: selectedPatient.bed,
+                care_unit_name: selectedPatient.care_unit_name,
+            };
+            setFolders(prev => prev.map(f =>
+                f.id === selectedFolder.id
+                    ? { ...f, patients: [...f.patients, patient], patientCount: (f.patientCount || f.patients.length) + 1 }
+                    : f
+            ));
+            setShowAddPatient(false);
+            setPatientSearch('');
+            setSelectedPatientId(null);
+            showToast(`${patient.first_name} ${patient.last_name} added`);
+        } catch {
+            showToast('Failed to add patient');
+        }
     };
 
-    const removePatientFromFolder = async (patientId: string) => {
-        if (!selectedFolder) return; setSaving(true);
+    const handleRemovePatient = async (patientId: string) => {
+        if (!selectedFolder) return;
+        const patient = selectedFolder.patients.find(p => p.id === patientId);
         try {
             const res = await fetch(`/api/proxy/patient-folders/${selectedFolder.id}/patients/${patientId}`, { method: 'DELETE' });
-            if (!res.ok && res.status !== 204) { showToast('Failed to remove'); setSaving(false); return; }
-            showToast('Patient removed'); fetchFolderPatients(selectedFolder.id);
-        } catch { showToast('Failed to remove'); } setSaving(false);
+            if (!res.ok) {
+                showToast('Failed to remove patient');
+                return;
+            }
+            setFolders(prev => prev.map(f =>
+                f.id === selectedFolder.id
+                    ? { ...f, patients: f.patients.filter(p => p.id !== patientId), patientCount: Math.max((f.patientCount || f.patients.length) - 1, 0) }
+                    : f
+            ));
+            showToast(`${patient?.first_name} ${patient?.last_name} removed`);
+        } catch {
+            showToast('Failed to remove patient');
+        }
     };
 
-    /* ── Add-by-unit actions ──────────────────────────────── */
-
-    const toggleId = (id: string) => setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-    const selectAll = () => {
-        const source = addMode === 'unit' ? addPatients : addSearchResults;
-        const eligible = source.filter(p => !folderPatients.some(fp => fp.id === p.id));
-        setSelectedIds(new Set(eligible.map(p => p.id)));
-    };
-    const deselectAll = () => setSelectedIds(new Set());
-
-    const addSelectedToFolder = async () => {
-        if (!selectedFolder || selectedIds.size === 0) return; setSaving(true);
+    const handleSaveEdit = async () => {
+        if (!selectedFolder || !editName.trim()) return;
         try {
-            const res = await fetch(`/api/proxy/patient-folders/${selectedFolder.id}/patients`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ patient_ids: Array.from(selectedIds) }) });
-            if (!res.ok) { showToast('Failed to add patients'); setSaving(false); return; }
-            showToast(`${selectedIds.size} patient${selectedIds.size !== 1 ? 's' : ''} added`);
-            setSelectedIds(new Set());
-            setShowAddPanel(false);
-            setAddMode('unit');
-            setAddUnitId('');
-            setAddPatients([]);
-            setAddSearch('');
-            setAddSearchResults([]);
-            fetchFolderPatients(selectedFolder.id);
-        } catch { showToast('Failed to add patients'); } setSaving(false);
+            const res = await fetch(`/api/proxy/patient-folders/${selectedFolder.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: editName.trim(),
+                    description: editDesc.trim(),
+                }),
+            });
+            if (!res.ok) {
+                showToast('Failed to update folder');
+                return;
+            }
+            const updated = await res.json();
+            const parsed = parseFolders([updated])[0];
+            setFolders(prev => prev.map(f => (f.id === selectedFolder.id ? (parsed || f) : f)));
+            setEditingFolder(false);
+            showToast('Folder updated');
+        } catch {
+            showToast('Failed to update folder');
+        }
     };
 
-    /* ── Render ────────────────────────────────────────────── */
+    const openEdit = () => {
+        if (!selectedFolder) return;
+        setEditName(selectedFolder.name);
+        setEditDesc(selectedFolder.description);
+        setEditingFolder(true);
+    };
+
+    const detailOpen = selectedFolder || showCreate;
 
     return (
         <div className="app-shell">
@@ -337,424 +425,324 @@ export default function PatientListFolders() {
             )}
 
             <div className="app-main">
-                <TopBar title="Patient List" subtitle="Folders" />
+                <TopBar title="Patient List Folders" subtitle="Manage patient folders for doctors" />
 
-                <main style={{ flex: 1, overflow: 'auto', background: 'var(--bg-900)' }}>
-                    <div className="page-container">
-                        <div className="split-layout" style={{ minHeight: 'calc(100vh - 140px)' }}>
+                <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
+                    {/* Filters */}
+                    <div className="fade-in" style={{ display: 'flex', gap: 12, marginBottom: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 300 }}>
+                            <span className="material-icons-round" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--text-disabled)', pointerEvents: 'none' }}>search</span>
+                            <input
+                                className="input"
+                                placeholder="Search folders or patients..."
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                                style={{ paddingLeft: 34, fontSize: 12.5, height: 36, width: '100%' }}
+                            />
+                        </div>
 
-                        {/* ═══════════ LEFT: FOLDER SIDEBAR ═══════════ */}
-                        <div className="sticky-col">
-                            <div className="sidebar-stack">
+                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{filtered.length} folder{filtered.length !== 1 ? 's' : ''}</span>
+                            <button className="btn btn-primary btn-sm" onClick={() => { setShowCreate(!showCreate); setSelectedFolderId(null); setEditingFolder(false); }}>
+                                <span className="material-icons-round" style={{ fontSize: 14 }}>{showCreate ? 'close' : 'add'}</span>
+                                {showCreate ? 'Cancel' : 'New Folder'}
+                            </button>
+                        </div>
+                    </div>
 
-                            {/* Summary card */}
-                            {summary && (
-                                <div className="panel">
-                                    <div className="panel-header">
-                                        <div style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(30,58,95,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                            <span className="material-icons-round" style={{ fontSize: 18, color: 'var(--helix-primary)' }}>groups</span>
-                                        </div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
-                                            <div className="panel-title">Patient List</div>
-                                            <div className="panel-subtitle">Total across your facility</div>
-                                        </div>
-                                        <span style={{ flex: 1 }} />
-                                        <div style={{ textAlign: 'right' }}>
-                                            <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--helix-primary)', lineHeight: 1 }}>{summary.total_patients}</div>
-                                            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Patients</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Unit Folders */}
-                            {summary && summary.by_unit.length > 0 && (
-                                <div className="panel">
-                                    <div className="panel-header">
-                                        <span className="material-icons-round" style={{ fontSize: 18, color: 'var(--info)' }}>apartment</span>
-                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <div className="panel-title">By Unit</div>
-                                            <div className="panel-subtitle">Quick grouping</div>
-                                        </div>
-                                    </div>
-                                    <div className="panel-body" style={{ padding: 10 }}>
-                                        {summary.by_unit.map(u => {
-                                            const active = selected?.kind === 'unit' && selected.id === u.unit_id;
+                    {/* Table + Detail Panel */}
+                    <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: detailOpen ? '1fr 380px' : '1fr', gap: 20, alignItems: 'start' }}>
+                        {/* Folders Table */}
+                        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                            <div className="table-wrapper">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th style={{ width: '40%' }}>Folder Name</th>
+                                            <th>Description</th>
+                                            <th style={{ textAlign: 'center' }}>Patients</th>
+                                            <th>Created</th>
+                                            <th style={{ width: 60, textAlign: 'center' }}>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {loading ? (
+                                            <tr><td colSpan={5} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 13 }}>Loading folders...</td></tr>
+                                        ) : filtered.length === 0 ? (
+                                            <tr><td colSpan={5} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 13 }}>No folders found</td></tr>
+                                        ) : filtered.map(folder => {
+                                            const isSelected = selectedFolderId === folder.id;
+                                            const totalPatients = folder.patientCount || folder.patients.length;
                                             return (
-                                                <button
-                                                    key={`u-${u.unit_id}`}
-                                                    type="button"
-                                                    onClick={() => { setSelected({ kind: 'unit', id: u.unit_id, name: u.unit_name }); setShowAddPanel(false); }}
+                                                <tr
+                                                    key={folder.id}
+                                                    onClick={() => { setSelectedFolderId(isSelected ? null : folder.id); setShowCreate(false); setEditingFolder(false); setShowAddPatient(false); }}
                                                     style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 10,
-                                                        padding: '9px 10px',
-                                                        borderRadius: 10,
-                                                        border: '1px solid',
-                                                        borderColor: active ? 'rgba(58,107,159,0.25)' : 'transparent',
-                                                        cursor: 'pointer',
-                                                        background: active ? 'rgba(58,107,159,0.08)' : 'transparent',
-                                                        transition: 'all 0.12s',
-                                                        textAlign: 'left',
-                                                        width: '100%',
+                                                        cursor: 'pointer', transition: 'background 0.12s',
+                                                        background: isSelected ? 'rgba(59,130,246,0.04)' : undefined,
                                                     }}
                                                 >
-                                                    <span className="material-icons-round" style={{ fontSize: 18, color: active ? 'var(--info)' : 'var(--text-disabled)' }}>apartment</span>
-                                                    <span style={{ flex: 1, fontSize: 12.5, fontWeight: active ? 800 : 600, color: active ? 'var(--info)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.unit_name}</span>
-                                                    <span className="badge badge-neutral" style={{ fontSize: 10, padding: '2px 8px', letterSpacing: '0.02em' }}>{u.patient_count}</span>
-                                                </button>
+                                                    <td>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                            <div style={{
+                                                                width: 30, height: 30, borderRadius: 'var(--radius-sm)',
+                                                                background: isSelected ? 'var(--helix-primary)' : 'var(--surface-2)',
+                                                                color: isSelected ? '#fff' : 'var(--text-secondary)',
+                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                fontSize: 12, flexShrink: 0,
+                                                            }}>
+                                                                <span className="material-icons-round" style={{ fontSize: 16 }}>folder</span>
+                                                            </div>
+                                                            <div>
+                                                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{folder.name}</div>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{folder.description || '—'}</td>
+                                                    <td style={{ textAlign: 'center', fontSize: 12.5, fontWeight: 600 }}>{totalPatients}</td>
+                                                    <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{folder.createdAt || '—'}</td>
+                                                    <td style={{ textAlign: 'center' }}>
+                                                        <button
+                                                            className="btn btn-danger btn-xs"
+                                                            onClick={e => { e.stopPropagation(); handleDeleteFolder(folder.id); }}
+                                                            title="Delete folder"
+                                                            style={{ padding: '3px 6px' }}
+                                                        >
+                                                            <span className="material-icons-round" style={{ fontSize: 13 }}>delete</span>
+                                                        </button>
+                                                    </td>
+                                                </tr>
                                             );
                                         })}
-                                    </div>
-                                </div>
-                            )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
 
-                            {/* Custom Folders */}
-                            <div className="panel">
-                                <div className="panel-header">
-                                    <span className="material-icons-round" style={{ fontSize: 18, color: 'var(--helix-primary)' }}>folder</span>
-                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                        <div className="panel-title">Folders</div>
-                                        <div className="panel-subtitle">Custom lists</div>
-                                    </div>
-                                    <span style={{ flex: 1 }} />
-                                    <button onClick={() => setShowCreate(!showCreate)} className="btn btn-secondary btn-xs" style={{ padding: '4px 10px' }}>
-                                        <span className="material-icons-round" style={{ fontSize: 14 }}>{showCreate ? 'close' : 'add'}</span>
-                                        {showCreate ? 'Close' : 'New'}
+                        {/* Detail / Create Panel */}
+                        {showCreate && (
+                            <div className="fade-in card" style={{ position: 'sticky', top: 24 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                                    <h3 style={{ fontSize: 15, fontWeight: 700 }}>Create Folder</h3>
+                                    <button onClick={() => setShowCreate(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
                                     </button>
                                 </div>
-
-                                {showCreate && (
-                                    <div className="panel-body fade-in" style={{ paddingTop: 10, paddingBottom: 10 }}>
-                                        <input className="input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Folder name" style={{ width: '100%', fontSize: 12, marginBottom: 6 }} />
-                                        <input className="input" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Description (optional)" style={{ width: '100%', fontSize: 12, marginBottom: 6 }} />
-                                        <button className="btn btn-primary btn-xs" onClick={createFolder} disabled={saving || !newName.trim()} style={{ width: '100%' }}>Create</button>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                    <div>
+                                        <label className="label">Folder Name</label>
+                                        <input className="input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. ICU Patients" style={{ fontSize: 13 }} />
                                     </div>
-                                )}
-
-                                {foldersLoading ? (
-                                    <div className="panel-body" style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--text-muted)' }}>Loading...</div>
-                                ) : folders.length === 0 ? (
-                                    <div className="panel-body" style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--text-muted)' }}>No custom folders yet</div>
-                                ) : (
-                                    <div className="panel-body" style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                        {folders.map(f => {
-                                            const active = selected?.kind === 'folder' && selected.id === f.id;
-                                            return (
-                                                <button
-                                                    key={f.id}
-                                                    type="button"
-                                                    onClick={() => { setSelected({ kind: 'folder', id: f.id, name: f.name }); setShowAddPanel(false); setRenaming(false); }}
-                                                    style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 10,
-                                                        padding: '9px 10px',
-                                                        borderRadius: 10,
-                                                        border: '1px solid',
-                                                        borderColor: active ? 'rgba(30,58,95,0.25)' : 'transparent',
-                                                        cursor: 'pointer',
-                                                        background: active ? 'rgba(30,58,95,0.08)' : 'transparent',
-                                                        transition: 'all 0.12s',
-                                                        textAlign: 'left',
-                                                        width: '100%',
-                                                    }}
-                                                >
-                                                    <span className="material-icons-round" style={{ fontSize: 16, color: active ? 'var(--helix-primary)' : 'var(--text-disabled)' }}>folder</span>
-                                                    <span style={{ flex: 1, fontSize: 12.5, fontWeight: active ? 800 : 600, color: active ? 'var(--helix-primary)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
-                                                    <span className="badge badge-neutral" style={{ fontSize: 10, padding: '2px 8px', letterSpacing: '0.02em' }}>{f.patient_count}</span>
-                                                </button>
-                                            );
-                                        })}
+                                    <div>
+                                        <label className="label">Description</label>
+                                        <textarea className="input" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Brief description of the folder" style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }} />
                                     </div>
-                                )}
-                            </div>
-                            </div>
-                        </div>
 
-                        {/* ═══════════ RIGHT: FOLDER CONTENT ═══════════ */}
-                        <div>
-                            {!selected ? (
-                                <div className="panel">
-                                    <div className="panel-body" style={{ padding: '64px 44px', textAlign: 'center' }}>
-                                    <span className="material-icons-round" style={{ fontSize: 48, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }}>folder_open</span>
-                                    <div style={{ fontSize: 14.5, fontWeight: 800, color: 'var(--text-secondary)', marginBottom: 6 }}>Select a list</div>
-                                    <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>Pick a unit or folder on the left to view patients.</div>
+                                    {/* Patients picker */}
+                                    <div>
+                                        <label className="label">Patients{newPatients.length > 0 && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> ({newPatients.length})</span>}</label>
+                                        <CustomSelect
+                                            value=""
+                                            onChange={v => {
+                                                if (!v) return;
+                                                const p = allPatients.find(x => x.id === v);
+                                                if (p && !newPatients.some(m => m.id === v)) {
+                                                    setNewPatients(prev => [...prev, { id: p.id, name: `${p.first_name} ${p.last_name}`, mrn: p.medical_record_number }]);
+                                                }
+                                            }}
+                                            options={allPatients
+                                                .filter(p => !newPatients.some(m => m.id === p.id))
+                                                .map(p => ({ label: `${p.first_name} ${p.last_name} — ${p.medical_record_number}`, value: p.id }))}
+                                            placeholder="Select patients to add..."
+                                        />
+                                        {newPatients.length > 0 && (
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                                                {newPatients.map(p => (
+                                                    <span key={p.id} style={{
+                                                        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 6px 3px 8px',
+                                                        borderRadius: 14, fontSize: 11, fontWeight: 600,
+                                                        background: 'rgba(99,102,241,0.08)', color: 'var(--helix-primary)',
+                                                        border: '1px solid rgba(99,102,241,0.18)',
+                                                    }}>
+                                                        {p.name}
+                                                        <button type="button" onClick={() => setNewPatients(prev => prev.filter(x => x.id !== p.id))}
+                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--helix-primary)', padding: 0, display: 'inline-flex', marginLeft: 2 }}>
+                                                            <span className="material-icons-round" style={{ fontSize: 13 }}>close</span>
+                                                        </button>
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
-                            ) : (
-                                <>
-                                    {/* Folder header */}
-                                    <div className="panel" style={{ marginBottom: 12 }}>
-                                        <div className="panel-header">
-                                        <span className="material-icons-round" style={{ fontSize: 22, color: selected.kind === 'unit' ? 'var(--info)' : 'var(--helix-primary)' }}>{selected.kind === 'unit' ? 'apartment' : 'folder_open'}</span>
-                                        {renaming && selectedFolder ? (
-                                            <div style={{ display: 'flex', gap: 6, flex: 1 }}>
-                                                <input className="input" value={renameValue} onChange={e => setRenameValue(e.target.value)} style={{ fontSize: 13, height: 30, flex: 1 }} />
-                                                <button className="btn btn-primary btn-xs" onClick={renameFolder} disabled={saving || !renameValue.trim()}>Save</button>
-                                                <button className="btn btn-secondary btn-xs" onClick={() => setRenaming(false)}>Cancel</button>
-                                            </div>
-                                        ) : (
-                                            <>
-                                                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, lineHeight: 1.15 }}>
-                                                    <span className="panel-title">{selected.name}</span>
-                                                    <span className="panel-subtitle">{folderPatients.length} patient{folderPatients.length !== 1 ? 's' : ''}</span>
-                                                </div>
-                                            </>
-                                        )}
-                                        {selected.kind === 'folder' && !renaming && (
-                                            <div style={{ display: 'flex', gap: 2 }}>
-                                                <button
-                                                    onClick={() => {
-                                                        const next = !showAddPanel;
-                                                        setShowAddPanel(next);
-                                                        if (!next) {
-                                                            setAddMode('unit');
-                                                            setAddUnitId('');
-                                                            setAddPatients([]);
-                                                            setAddSearch('');
-                                                            setAddSearchResults([]);
-                                                            setSelectedIds(new Set());
-                                                        }
-                                                    }}
-                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
-                                                    title="Add patients"
-                                                >
-                                                    <span className="material-icons-round" style={{ fontSize: 16, color: showAddPanel ? 'var(--helix-primary)' : 'var(--text-muted)' }}>person_add</span>
-                                                </button>
-                                                <button onClick={() => { setRenaming(true); setRenameValue(selectedFolder?.name || ''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }} title="Rename">
-                                                    <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)' }}>edit</span>
-                                                </button>
-                                                <button onClick={deleteFolder} disabled={saving} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }} title="Delete">
-                                                    <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--danger)' }}>delete</span>
-                                                </button>
-                                            </div>
-                                        )}
+                                <button className="btn btn-primary btn-sm" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }} onClick={handleCreateFolder} disabled={!newName.trim()}>
+                                    <span className="material-icons-round" style={{ fontSize: 14 }}>add</span>
+                                    Create Folder{newPatients.length > 0 ? ` with ${newPatients.length} patient${newPatients.length > 1 ? 's' : ''}` : ''}
+                                </button>
+                            </div>
+                        )}
+
+                        {selectedFolder && !showCreate && (
+                            <div className="fade-in card" style={{ position: 'sticky', top: 24 }}>
+                                {editingFolder ? (
+                                    <>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                                            <h3 style={{ fontSize: 15, fontWeight: 700 }}>Edit Folder</h3>
+                                            <button onClick={() => setEditingFolder(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2 }}>
+                                                <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
+                                            </button>
                                         </div>
-                                    </div>
-
-                                    {/* Add patients panel */}
-                                    {showAddPanel && selectedFolder && (
-                                        <div className="card fade-in" style={{ padding: 0, overflow: 'hidden', marginBottom: 12 }}>
-                                            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 18, color: 'var(--helix-primary)' }}>person_add</span>
-                                                <span style={{ fontSize: 13, fontWeight: 700 }}>Add Patients</span>
-                                                <span style={{ flex: 1 }} />
-                                                <button
-                                                    onClick={() => {
-                                                        setShowAddPanel(false);
-                                                        setAddMode('unit');
-                                                        setAddUnitId('');
-                                                        setAddPatients([]);
-                                                        setAddSearch('');
-                                                        setAddSearchResults([]);
-                                                        setSelectedIds(new Set());
-                                                    }}
-                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
-                                                    title="Close"
-                                                >
-                                                    <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)' }}>close</span>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                            <div>
+                                                <label className="label">Folder Name</label>
+                                                <input className="input" value={editName} onChange={e => setEditName(e.target.value)} style={{ fontSize: 13 }} />
+                                            </div>
+                                            <div>
+                                                <label className="label">Description</label>
+                                                <textarea className="input" value={editDesc} onChange={e => setEditDesc(e.target.value)} style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }} />
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                                            <button className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={handleSaveEdit} disabled={!editName.trim()}>Save Changes</button>
+                                            <button className="btn btn-secondary btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setEditingFolder(false)}>Cancel</button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        {/* Header */}
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <h3 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.01em', marginBottom: 3 }}>{selectedFolder.name}</h3>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    {selectedFolder.createdAt && <span style={{ fontSize: 10, color: 'var(--text-disabled)' }}>{selectedFolder.createdAt}</span>}
+                                                </div>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: 2 }}>
+                                                <button onClick={openEdit} style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border-default)', background: 'var(--surface-card)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', transition: 'all 0.12s' }}
+                                                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--helix-primary)'; e.currentTarget.style.color = 'var(--helix-primary)'; }}
+                                                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>edit</span>
+                                                </button>
+                                                <button onClick={() => setSelectedFolderId(null)} style={{ width: 28, height: 28, borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-disabled)', transition: 'color 0.12s' }}
+                                                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+                                                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-disabled)'; }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
                                                 </button>
                                             </div>
+                                        </div>
 
-                                            <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                                                <div style={{ display: 'inline-flex', borderRadius: 999, background: 'var(--surface-2)', padding: 2, border: '1px solid var(--border-subtle)' }}>
-                                                    {(['unit', 'search'] as const).map(mode => (
-                                                        <button
-                                                            key={mode}
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setAddMode(mode);
-                                                                setSelectedIds(new Set());
-                                                                if (mode === 'unit') {
-                                                                    setAddSearch('');
-                                                                    setAddSearchResults([]);
-                                                                } else {
-                                                                    setAddUnitId('');
-                                                                    setAddPatients([]);
-                                                                }
-                                                            }}
-                                                            style={{
-                                                                border: 'none',
-                                                                cursor: 'pointer',
-                                                                padding: '6px 12px',
-                                                                borderRadius: 999,
-                                                                fontSize: 11,
-                                                                fontWeight: 700,
-                                                                letterSpacing: '0.02em',
-                                                                background: addMode === mode ? 'var(--helix-primary)' : 'transparent',
-                                                                color: addMode === mode ? '#fff' : 'var(--text-secondary)',
-                                                                transition: 'all 0.12s',
-                                                            }}
-                                                        >
-                                                            {mode === 'unit' ? 'By Unit' : 'Search'}
-                                                        </button>
-                                                    ))}
-                                                </div>
+                                        {selectedFolder.description && (
+                                            <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginBottom: 14, lineHeight: 1.5 }}>{selectedFolder.description}</p>
+                                        )}
 
-                                                <div style={{ flex: 1, minWidth: 260 }}>
-                                                    {addMode === 'unit' ? (
-                                                        <CustomSelect
-                                                            value={addUnitId}
-                                                            onChange={v => { setAddUnitId(v); setSelectedIds(new Set()); }}
-                                                            options={[{ label: 'Select a unit...', value: '' }, ...units.map(u => ({ label: u.name, value: u.id }))]}
-                                                            placeholder="Select unit"
-                                                            style={{ width: '100%' }}
-                                                        />
-                                                    ) : (
-                                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                                            <input
-                                                                className="input"
-                                                                placeholder="Search by patient name or MRN..."
-                                                                value={addSearch}
-                                                                onChange={e => setAddSearch(e.target.value)}
-                                                                onKeyDown={e => { if (e.key === 'Enter') searchAddPatients(); }}
-                                                                style={{ fontSize: 12, flex: 1 }}
-                                                            />
-                                                            <button className="btn btn-secondary btn-xs" onClick={searchAddPatients} disabled={!addSearch.trim() || addSearchLoading}>
-                                                                {addSearchLoading ? 'Searching...' : 'Search'}
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                </div>
+                                        {/* Info row */}
+                                        <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
+                                            <div style={{ flexShrink: 0, width: 64, padding: '10px 8px', borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                                                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--helix-primary)', lineHeight: 1 }}>{selectedFolder.patients.length}</div>
+                                                <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-disabled)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 3 }}>Patients</div>
                                             </div>
+                                        </div>
 
-                                            {(addMode === 'unit' ? Boolean(addUnitId) : addSearch.trim().length > 0) && (
-                                                <>
-                                                    <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                        {(() => {
-                                                            const source = addMode === 'unit' ? addPatients : addSearchResults;
-                                                            const label = addMode === 'unit' ? 'in unit' : 'matching search';
-                                                            return (
-                                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700 }}>
-                                                                    {source.length} patient{source.length !== 1 ? 's' : ''} {label}
-                                                                </span>
-                                                            );
-                                                        })()}
-                                                        <span style={{ flex: 1 }} />
-                                                        {selectedIds.size > 0 ? (
-                                                            <button className="btn btn-secondary btn-xs" onClick={deselectAll}>Deselect All</button>
-                                                        ) : (
-                                                            <button className="btn btn-secondary btn-xs" onClick={selectAll} disabled={addMode === 'unit' ? addLoading : addSearchLoading}>
-                                                                Select All
-                                                            </button>
-                                                        )}
-                                                        <button className="btn btn-primary btn-xs" onClick={addSelectedToFolder} disabled={saving || selectedIds.size === 0}>
-                                                            Add {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+                                        {/* Divider + Patients header */}
+                                        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, marginBottom: 10 }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Patients</span>
+                                                <button onClick={() => setShowAddPatient(!showAddPatient)}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: 'none', cursor: 'pointer', background: showAddPatient ? 'var(--surface-2)' : 'var(--helix-primary)', color: showAddPatient ? 'var(--text-secondary)' : '#fff', transition: 'all 0.15s' }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 13 }}>{showAddPatient ? 'close' : 'person_add'}</span>
+                                                    {showAddPatient ? 'Cancel' : 'Add'}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {showAddPatient && (
+                                            <div style={{
+                                                display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12, padding: 10,
+                                                background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border-subtle)',
+                                            }}>
+                                                <CustomSelect
+                                                    value=""
+                                                    onChange={v => {
+                                                        if (!v) return;
+                                                        const p = allPatients.find(x => x.id === v);
+                                                        if (p) { setSelectedPatientId(p.id); }
+                                                    }}
+                                                    options={allPatients
+                                                        .filter(p => !selectedFolder.patients.some(m => m.id === p.id))
+                                                        .map(p => ({ label: `${p.first_name} ${p.last_name} — ${p.medical_record_number}`, value: p.id }))}
+                                                    placeholder="Select patient..."
+                                                />
+
+                                                {selectedPatient && (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, background: 'var(--surface-card)', border: '1px solid var(--helix-primary)' }}>
+                                                        <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--helix-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
+                                                            {selectedPatient.first_name[0]}{selectedPatient.last_name[0]}
+                                                        </div>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: 12, fontWeight: 600 }}>{selectedPatient.first_name} {selectedPatient.last_name}</div>
+                                                            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{selectedPatient.medical_record_number}</div>
+                                                        </div>
+                                                        <button className="btn btn-primary btn-xs" onClick={handleAddPatient} style={{ padding: '4px 10px' }}>
+                                                            <span className="material-icons-round" style={{ fontSize: 12 }}>add</span>Add
                                                         </button>
                                                     </div>
+                                                )}
+                                            </div>
+                                        )}
 
-                                                    {addMode === 'unit' ? (
-                                                        addLoading ? (
-                                                            <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>Loading patients...</div>
-                                                        ) : addPatients.length === 0 ? (
-                                                            <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>No patients in this unit</div>
-                                                        ) : null
-                                                    ) : addSearchLoading ? (
-                                                        <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>Searching patients...</div>
-                                                    ) : addSearchResults.length === 0 ? (
-                                                        <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>No patients match this search</div>
-                                                    ) : null}
-
-                                                    {(() => {
-                                                        const source = addMode === 'unit' ? addPatients : addSearchResults;
-                                                        const shouldHide =
-                                                            (addMode === 'unit' && (addLoading || addPatients.length === 0)) ||
-                                                            (addMode === 'search' && (addSearchLoading || addSearchResults.length === 0));
-                                                        if (shouldHide) return null;
-
-                                                        return (
-                                                            <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-                                                                {source.map(p => {
-                                                                    const inFolder = folderPatients.some(fp => fp.id === p.id);
-                                                                    const checked = selectedIds.has(p.id);
-                                                                    return (
-                                                                        <div
-                                                                            key={p.id}
-                                                                            onClick={() => { if (!inFolder) toggleId(p.id); }}
-                                                                            style={{
-                                                                                display: 'flex',
-                                                                                alignItems: 'center',
-                                                                                gap: 10,
-                                                                                padding: '8px 16px',
-                                                                                borderBottom: '1px solid var(--border-subtle)',
-                                                                                cursor: inFolder ? 'default' : 'pointer',
-                                                                                opacity: inFolder ? 0.45 : 1,
-                                                                                background: checked ? 'rgba(30,58,95,0.06)' : 'transparent',
-                                                                                transition: 'background 0.1s',
-                                                                            }}
-                                                                        >
-                                                                            <div style={{ width: 18, height: 18, borderRadius: 4, border: inFolder ? '1px solid var(--text-disabled)' : checked ? '1px solid var(--helix-primary)' : '1px solid var(--border-default)', background: inFolder ? 'var(--text-disabled)' : checked ? 'var(--helix-primary)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.12s' }}>
-                                                                                {(checked || inFolder) && <span className="material-icons-round" style={{ fontSize: 14, color: '#fff' }}>check</span>}
-                                                                            </div>
-                                                                            <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--helix-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
-                                                                                {(p.first_name || 'U')[0]}{(p.last_name || 'P')[0]}
-                                                                            </div>
-                                                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                                                <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                                                    {p.first_name} {p.last_name}{inFolder ? ' (already in folder)' : ''}
-                                                                                </div>
-                                                                                <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                                                                                    {p.medical_record_number ? `MRN: ${p.medical_record_number}` : 'MRN: -'}
-                                                                                    {p.room ? ` · Rm ${p.room}${p.bed ? `/${p.bed}` : ''}` : ''}
-                                                                                </div>
-                                                                            </div>
-                                                                            <span className={`badge ${statusBadge(p.status)}`} style={{ fontSize: 9, flexShrink: 0 }}>{p.status}</span>
-                                                                        </div>
-                                                                    );
-                                                                })}
+                                        {selectedFolder.patients.length === 0 ? (
+                                            <div style={{ padding: '24px 0', textAlign: 'center' }}>
+                                                <span className="material-icons-round" style={{ fontSize: 28, color: 'var(--border-default)', marginBottom: 6, display: 'block' }}>folder_off</span>
+                                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No patients yet</div>
+                                            </div>
+                                        ) : (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                                {selectedFolder.patients.map((patient, idx) => (
+                                                    <div key={patient.id} style={{
+                                                        display: 'flex', alignItems: 'center', gap: 10, padding: '7px 8px',
+                                                        borderRadius: 6, transition: 'background 0.1s',
+                                                        background: idx % 2 === 0 ? 'transparent' : 'var(--surface-2)',
+                                                    }}
+                                                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; }}
+                                                        onMouseLeave={e => { e.currentTarget.style.background = idx % 2 === 0 ? 'transparent' : 'var(--surface-2)'; }}
+                                                    >
+                                                        <div style={{
+                                                            width: 28, height: 28, borderRadius: '50%',
+                                                            background: 'var(--helix-primary)',
+                                                            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            fontSize: 10, fontWeight: 700, flexShrink: 0,
+                                                        }}>
+                                                            {patient.first_name[0]}{patient.last_name[0]}
+                                                        </div>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-primary)' }}>{patient.first_name} {patient.last_name}</div>
+                                                            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                {patient.medical_record_number}
+                                                                {patient.status && (
+                                                                    <>
+                                                                        <span style={{ width: 4, height: 4, borderRadius: '50%', background: statusColor[patient.status] || 'var(--text-muted)', flexShrink: 0 }} />
+                                                                        <span style={{ color: statusColor[patient.status], fontWeight: 600, fontSize: 10 }}>{patient.status}</span>
+                                                                    </>
+                                                                )}
                                                             </div>
-                                                        );
-                                                    })()}
-                                                </>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* Patient table */}
-                                    <div className="panel">
-                                        <div className="table-wrapper">
-                                        <table>
-                                            <thead><tr style={{ borderBottom: '1px solid var(--border-default)' }}>
-                                                <th style={thStyle}>Patient</th><th style={thStyle}>MRN</th><th style={thStyle}>Unit</th><th style={thStyle}>Room/Bed</th><th style={{ ...thStyle, textAlign: 'center' }}>Status</th>
-                                                {selected.kind === 'folder' && <th style={{ ...thStyle, width: 40 }} />}
-                                            </tr></thead>
-                                            <tbody>
-                                                {fpLoading && <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}><span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, color: 'var(--text-disabled)' }}>hourglass_empty</span>Loading...</td></tr>}
-                                                {!fpLoading && folderPatients.length === 0 && <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}><span className="material-icons-round" style={{ fontSize: 28, display: 'block', marginBottom: 8, color: 'var(--text-disabled)' }}>person_off</span>No patients{selected.kind === 'folder' ? ' in this folder' : ''}</td></tr>}
-                                                {!fpLoading && folderPatients.map(p => (
-                                                    <tr key={p.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                                                        <td style={tdStyle}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                                <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--helix-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{(p.first_name || 'U')[0]}{(p.last_name || 'P')[0]}</div>
-                                                                <div style={{ minWidth: 0 }}>
-                                                                    <div style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.first_name} {p.last_name}</div>
-                                                                </div>
-                                                            </div>
-                                                        </td>
-                                                        <td style={{ ...tdStyle, fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5 }}>{p.medical_record_number || '-'}</td>
-                                                        <td style={tdStyle}>{p.care_unit_name || '-'}</td>
-                                                        <td style={tdStyle}>{[p.room, p.bed].filter(Boolean).join('/') || '-'}</td>
-                                                        <td style={{ ...tdStyle, textAlign: 'center' }}><span className={`badge ${statusBadge(p.status)}`} style={{ fontSize: 10 }}>{p.status}</span></td>
-                                                        {selected.kind === 'folder' && (
-                                                            <td style={{ ...tdStyle, textAlign: 'center' }}>
-                                                                <button onClick={() => removePatientFromFolder(p.id)} disabled={saving} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-disabled)', transition: 'color 0.12s' }} onMouseEnter={e => { e.currentTarget.style.color = 'var(--danger)'; }} onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-disabled)'; }} title="Remove">
-                                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>close</span>
-                                                                </button>
-                                                            </td>
-                                                        )}
-                                                    </tr>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleRemovePatient(patient.id)}
+                                                            title="Remove"
+                                                            style={{ width: 24, height: 24, borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-disabled)', transition: 'all 0.12s' }}
+                                                            onMouseEnter={e => { e.currentTarget.style.color = 'var(--critical)'; e.currentTarget.style.background = 'rgba(239,68,68,0.06)'; }}
+                                                            onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-disabled)'; e.currentTarget.style.background = 'transparent'; }}
+                                                        >
+                                                            <span className="material-icons-round" style={{ fontSize: 14 }}>remove_circle_outline</span>
+                                                        </button>
+                                                    </div>
                                                 ))}
-                                            </tbody>
-                                        </table>
-                                        </div>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-
-                        </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </main>
             </div>

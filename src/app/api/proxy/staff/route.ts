@@ -15,9 +15,12 @@ type IncomingStaffBody = {
     last_name?: string;
     email?: string;
     phone?: string;
+    dob?: string;
+    gender?: string;
     title?: string;
     job_title?: string;
     highest_qualification?: string;
+    highest_qualifications?: string;
     is_doctor?: boolean;
     patient_access?: boolean;
     can_access_patients?: boolean;
@@ -141,7 +144,7 @@ export async function POST(req: NextRequest) {
         const departmentId = body.department_id
             || body.departmentId
             || (facilityId ? await resolveDepartmentIdByName(req, facilityId, body.department || body.dept) : undefined);
-        const payload = {
+        const payload: Record<string, unknown> = {
             facility_id: facilityId,
             department_id: departmentId,
             first_name: (body.first_name || '').trim(),
@@ -150,13 +153,15 @@ export async function POST(req: NextRequest) {
             phone: (body.phone || '').trim(),
             title: (body.title || '').trim(),
             job_title: (body.job_title || '').trim(),
-            highest_qualification: (body.highest_qualification || '').trim(),
+            highest_qualifications: (body.highest_qualifications || body.highest_qualification || '').trim(),
             is_doctor: Boolean(body.is_doctor),
             // Backend field naming has varied; send both for compatibility.
             patient_access: Boolean(body.patient_access ?? body.can_access_patients),
             can_access_patients: Boolean(body.patient_access ?? body.can_access_patients),
             role: (body.role || 'staff').toLowerCase(),
         };
+        if (body.dob) payload.dob = body.dob.trim();
+        if (body.gender) payload.gender = body.gender.trim();
         const url = `${API_BASE_URL}/api/v1/staff`;
 
         console.log('Proxy create staff request to:', url);
