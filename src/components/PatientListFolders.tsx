@@ -386,7 +386,7 @@ export default function PatientListFolders() {
                                         </div>
 
                                         <p style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45, margin: 0 }}>
-                                            Patient membership is not managed on this page. The count reflects data from the server when available.
+                                            Create and edit folders here. Patient membership is managed in the Helix app. The patient count updates when Helix has a number to show for this folder.
                                         </p>
                                     </>
                                 )}
