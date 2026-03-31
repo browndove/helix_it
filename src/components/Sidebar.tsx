@@ -1,9 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
+import {
+    isLikelyFacilityDisplayName,
+    readCachedSidebarUser,
+    readFacilityDisplayName,
+    writeCachedSidebarUser,
+    writeFacilityDisplayName,
+} from '@/lib/facilityDisplayCache';
 
 interface NavItem {
     icon: string;
@@ -81,6 +88,20 @@ export default function Sidebar({
     const [sessionUser, setSessionUser] = useState<{ name: string; email: string; role: string } | null>(null);
     const [facilityName, setFacilityName] = useState<string | null>(null);
 
+    // After SSR/hydration, apply session cache before paint (avoids "Facility" / "User" flashes).
+    useLayoutEffect(() => {
+        const cachedFacility = readFacilityDisplayName();
+        if (cachedFacility) setFacilityName(cachedFacility);
+        const cachedUser = readCachedSidebarUser();
+        if (cachedUser) {
+            setSessionUser({
+                name: cachedUser.name,
+                email: cachedUser.email,
+                role: cachedUser.role,
+            });
+        }
+    }, []);
+
     useEffect(() => {
         let cancelled = false;
 
@@ -99,11 +120,13 @@ export default function Sidebar({
 
                 const role = formatRoleLabel(String(user.role || user.system_role || 'Admin'));
                 if (!cancelled && name) {
-                    setSessionUser({
+                    const nextUser = {
                         name,
                         email: String(user.email || ''),
                         role,
-                    });
+                    };
+                    setSessionUser(nextUser);
+                    writeCachedSidebarUser(nextUser);
                 }
 
                 const facilityNameFromUser = String(
@@ -114,8 +137,9 @@ export default function Sidebar({
                     || (user.facility && typeof user.facility === 'object' ? (user.facility as Record<string, unknown>).name : '')
                     || ''
                 ).trim();
-                if (!cancelled && facilityNameFromUser) {
+                if (!cancelled && facilityNameFromUser && isLikelyFacilityDisplayName(facilityNameFromUser)) {
                     setFacilityName(facilityNameFromUser);
+                    writeFacilityDisplayName(facilityNameFromUser);
                 }
 
                 // Fetch hospital name from hospital proxy (most reliable for current facility)
@@ -124,7 +148,10 @@ export default function Sidebar({
                     if (hospitalRes.ok) {
                         const hospitalData = await hospitalRes.json();
                         const resolvedName = getFacilityNameFromPayload(hospitalData);
-                        if (!cancelled && resolvedName) setFacilityName(resolvedName);
+                        if (!cancelled && resolvedName && isLikelyFacilityDisplayName(resolvedName)) {
+                            setFacilityName(resolvedName);
+                            writeFacilityDisplayName(resolvedName);
+                        }
                     }
                 } catch { /* best effort */ }
 

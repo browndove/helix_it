@@ -1,9 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
-import navSections from '@/components/navSections';
 import CalendarRangePicker from '@/components/CalendarRangePicker';
 import CustomSelect from '@/components/CustomSelect';
 
@@ -349,8 +347,6 @@ export default function AuditLogPage() {
     );
 
     return (
-        <div className="app-shell">
-            <Sidebar sections={navSections} />
             <div className="app-main">
                 <TopBar title="Audit Log" subtitle="Activity History" />
 
@@ -519,6 +515,5 @@ export default function AuditLogPage() {
                     </div>
                 </main>
             </div>
-        </div>
     );
 }

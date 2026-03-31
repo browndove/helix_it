@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
-import navSections from '@/components/navSections';
 import { API_ENDPOINTS } from '@/lib/config';
+import { clearAdminSidebarSession } from '@/lib/facilityDisplayCache';
 import CustomSelect from '@/components/CustomSelect';
 import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 
@@ -353,6 +352,7 @@ export default function SettingsPage() {
         } catch {
             // Continue logout UX even if request fails.
         }
+        clearAdminSidebarSession();
         router.push('/');
     };
 
@@ -489,9 +489,7 @@ export default function SettingsPage() {
     const visibleSessions = useMemo(() => sessions, [sessions]);
 
     return (
-        <div className="app-shell">
-            <Sidebar sections={navSections} />
-
+        <>
             {toast && (
                 <div className="toast-enter" style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '10px 18px', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--success)' }}>check_circle</span>
@@ -864,6 +862,6 @@ export default function SettingsPage() {
                     )}
                 </main>
             </div>
-        </div>
+        </>
     );
 }

@@ -1,9 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
-import navSections from '@/components/navSections';
 import CustomSelect from '@/components/CustomSelect';
 
 /* ── Types ─────────────────────────────────────────────────── */
@@ -171,8 +169,6 @@ export default function PatientsDirectoryManagement() {
     /* ── Render ────────────────────────────────────────────── */
 
     return (
-        <div className="app-shell">
-            <Sidebar sections={navSections} />
             <div className="app-main">
                 <TopBar
                     title="Patients"
@@ -266,6 +262,5 @@ export default function PatientsDirectoryManagement() {
                     </div>
                 </main>
             </div>
-        </div>
     );
 }

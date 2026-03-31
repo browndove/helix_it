@@ -15,6 +15,7 @@ type IncomingRoleBody = {
     priority?: string;
     mandatory?: boolean;
     sign_in_allowed_user_ids?: string[];
+    external_messaging?: boolean;
 };
 
 async function resolveDepartmentIdByName(req: NextRequest, facilityId: string, departmentName?: string): Promise<string | undefined> {
@@ -130,7 +131,7 @@ export async function POST(req: NextRequest) {
             ? (departmentIdFromBody || await resolveDepartmentIdByName(req, facilityId, body.department))
             : departmentIdFromBody;
         console.log('[createRole] Resolved departmentId:', departmentId);
-        const payload = {
+        const payload: Record<string, unknown> = {
             name: body.name,
             description: body.description || '',
             facility_id: facilityId,
@@ -141,6 +142,9 @@ export async function POST(req: NextRequest) {
                 ? body.sign_in_allowed_user_ids
                 : undefined,
         };
+        if (Object.prototype.hasOwnProperty.call(body, 'external_messaging')) {
+            payload.external_messaging = Boolean(body.external_messaging);
+        }
         const url = `${API_BASE_URL}/api/v1/roles`;
 
         console.log('[createRole] Final payload:', JSON.stringify(payload));

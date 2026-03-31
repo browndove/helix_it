@@ -1,9 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
-import navSections from '@/components/navSections';
 import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
 
 /** Lock main column to the viewport so only inner panes scroll (not the document). */
@@ -21,17 +19,35 @@ type Department = {
     id: string;
     name: string;
     description: string;
+    /** Authoritative count from API; floors[] may be synthetic labels (Floor 1…N) when API omits named floors. */
+    number_of_floors: number;
     floors: FloorItem[];
     wards: WardItem[];
 };
 
 function normalizeDepartment(raw: Partial<Department> & Record<string, unknown>): Department {
     const desc = raw.description;
+    const apiFloors = Array.isArray(raw.floors) ? (raw.floors as FloorItem[]) : [];
+    let number_of_floors: number;
+    if (apiFloors.length > 0) {
+        number_of_floors = apiFloors.length;
+    } else {
+        const n = raw.number_of_floors;
+        number_of_floors = typeof n === 'number' && Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+    }
+    const deptId = String(raw.id || 'dept');
+    const floors = apiFloors.length > 0
+        ? apiFloors
+        : Array.from({ length: number_of_floors }, (_, i) => ({
+            id: `${deptId}-floor-${i + 1}`,
+            name: `Floor ${i + 1}`,
+        }));
     return {
-        id: raw.id || '',
+        id: deptId,
         name: raw.name || 'Unnamed Department',
         description: typeof desc === 'string' ? desc : '',
-        floors: Array.isArray(raw.floors) ? raw.floors : [],
+        number_of_floors,
+        floors,
         wards: Array.isArray(raw.wards) ? raw.wards : [],
     };
 }
@@ -42,9 +58,11 @@ export default function DepartmentsManagement() {
     const [toast, setToast] = useState<string | null>(null);
     const [editingDept, setEditingDept] = useState<string | null>(null);
     const [newDeptName, setNewDeptName] = useState('');
+    const [newDeptDescription, setNewDeptDescription] = useState('');
+    const [newDeptFloorsInput, setNewDeptFloorsInput] = useState('');
+    const [newDeptWardLines, setNewDeptWardLines] = useState('');
     const [showAddDept, setShowAddDept] = useState(false);
     const [newWard, setNewWard] = useState('');
-    const [newFloor, setNewFloor] = useState('');
     const [loading, setLoading] = useState(true);
     const [deptSearch, setDeptSearch] = useState('');
     const [detailName, setDetailName] = useState('');
@@ -165,6 +183,13 @@ export default function DepartmentsManagement() {
         };
     }, [editingDept, showToast]);
 
+    const resetNewDepartmentForm = () => {
+        setNewDeptName('');
+        setNewDeptDescription('');
+        setNewDeptFloorsInput('');
+        setNewDeptWardLines('');
+    };
+
     const addDepartment = async () => {
         const trimmed = newDeptName.trim();
         if (!trimmed) return;
@@ -172,22 +197,54 @@ export default function DepartmentsManagement() {
             showToast(`Department name must be ${DEPARTMENT_NAME_MAX_LENGTH} characters or fewer`);
             return;
         }
+        if (newDeptDescription.length > DEPARTMENT_DESCRIPTION_MAX_LENGTH) {
+            showToast(`Description must be ${DEPARTMENT_DESCRIPTION_MAX_LENGTH} characters or fewer`);
+            return;
+        }
+        let number_of_floors: number | undefined;
+        const floorsRaw = newDeptFloorsInput.trim();
+        if (floorsRaw !== '') {
+            const n = Number.parseInt(floorsRaw, 10);
+            if (!Number.isFinite(n) || n < 0) {
+                showToast('Number of floors must be zero or a positive whole number');
+                return;
+            }
+            number_of_floors = n;
+        }
+        const wardNames = newDeptWardLines
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(Boolean);
+        for (const w of wardNames) {
+            if (w.length > DEPARTMENT_NAME_MAX_LENGTH) {
+                showToast(`Each ward name must be ${DEPARTMENT_NAME_MAX_LENGTH} characters or fewer`);
+                return;
+            }
+        }
+        const wards = wardNames.map(name => ({ name, description: '' }));
         try {
+            const body: Record<string, unknown> = {
+                name: trimmed,
+                description: newDeptDescription.trim(),
+                facility_id: hospitalId || '',
+            };
+            if (number_of_floors !== undefined) body.number_of_floors = number_of_floors;
+            if (wards.length > 0) body.wards = wards;
+
             const res = await fetch('/api/proxy/departments', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: trimmed,
-                    description: '',
-                    facility_id: hospitalId || '',
-                }),
+                body: JSON.stringify(body),
             });
             if (res.ok) {
                 const dept = await res.json();
                 setDepartments(prev => [...prev, normalizeDepartment(dept)]);
                 showToast(`${trimmed} added`);
-                setNewDeptName('');
+                resetNewDepartmentForm();
                 setShowAddDept(false);
+            } else {
+                const err = await res.json().catch(() => ({} as { error?: string; detail?: string }));
+                showToast(String(err.error || err.detail || 'Failed to add department'));
             }
         } catch { showToast('Failed to add department'); }
     };
@@ -217,7 +274,7 @@ export default function DepartmentsManagement() {
                 body: JSON.stringify({
                     name: trimmedName,
                     description: descTrimmed,
-                    number_of_floors: d.floors.length,
+                    number_of_floors: d.number_of_floors,
                     number_of_wards: d.wards.length,
                 }),
             });
@@ -242,7 +299,6 @@ export default function DepartmentsManagement() {
             const merged = {
                 ...d,
                 ...body,
-                floors: Array.isArray(body.floors) ? body.floors as FloorItem[] : d.floors,
                 wards: Array.isArray(body.wards) ? body.wards as WardItem[] : d.wards,
             };
             const updated = normalizeDepartment(merged);
@@ -295,30 +351,61 @@ export default function DepartmentsManagement() {
         } catch { showToast('Failed to remove ward'); }
     };
 
-    const addFloor = async (deptId: string) => {
-        if (!newFloor.trim()) return;
+    /** Helix API has no POST /departments/{id}/floors — floor count is updated incrementally on the department (PUT). */
+    const putDepartmentFloorCount = async (deptId: string, nextCount: number): Promise<boolean> => {
+        const d = departments.find(x => x.id === deptId);
+        if (!d) return false;
+        const n = Math.max(0, Math.floor(nextCount));
         try {
-            const res = await fetch(`/api/proxy/departments/${deptId}/floors`, {
-                method: 'POST',
+            const res = await fetch(`/api/proxy/departments/${deptId}`, {
+                method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newFloor.trim() }),
+                body: JSON.stringify({
+                    name: d.name,
+                    description: d.description || '',
+                    number_of_floors: n,
+                    number_of_wards: d.wards.length,
+                }),
             });
-            if (res.ok) {
-                const floor = await res.json();
-                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, floors: [...(d.floors || []), floor] } : d));
-                showToast(`Floor "${newFloor}" added`);
-                setNewFloor('');
+            const rawText = await res.text();
+            let payload: Record<string, unknown> = {};
+            if (rawText) {
+                try {
+                    payload = JSON.parse(rawText) as Record<string, unknown>;
+                } catch {
+                    if (!res.ok) {
+                        showToast('Failed to update floors');
+                        return false;
+                    }
+                }
             }
-        } catch { showToast('Failed to add floor'); }
+            if (!res.ok) {
+                const msg = typeof payload.error === 'string' ? payload.error : typeof payload.detail === 'string' ? payload.detail : 'Failed to update floors';
+                showToast(msg);
+                return false;
+            }
+            const merged = { ...d, ...payload, number_of_floors: n, wards: Array.isArray(payload.wards) ? payload.wards as WardItem[] : d.wards };
+            const updated = normalizeDepartment(merged as Partial<Department> & Record<string, unknown>);
+            setDepartments(prev => prev.map(x => (x.id === deptId ? updated : x)));
+            return true;
+        } catch {
+            showToast('Failed to update floors');
+            return false;
+        }
     };
 
-    const removeFloor = async (deptId: string, floorId: string) => {
-        try {
-            const res = await fetch(`/api/proxy/departments/${deptId}/floors/${floorId}`, { method: 'DELETE' });
-            if (res.ok) {
-                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, floors: (d.floors || []).filter(f => f.id !== floorId) } : d));
-            }
-        } catch { showToast('Failed to remove floor'); }
+    const addFloor = async (deptId: string) => {
+        const d = departments.find(x => x.id === deptId);
+        if (!d) return;
+        const ok = await putDepartmentFloorCount(deptId, d.number_of_floors + 1);
+        if (ok) showToast('Floor added');
+    };
+
+    const removeFloor = async (deptId: string) => {
+        const d = departments.find(x => x.id === deptId);
+        if (!d || d.number_of_floors <= 0) return;
+        const ok = await putDepartmentFloorCount(deptId, d.number_of_floors - 1);
+        if (ok) showToast('Floor removed');
     };
 
     const editDept = departments.find(d => d.id === editingDept);
@@ -337,8 +424,6 @@ export default function DepartmentsManagement() {
         };
         const line = (w: string, h = 12) => <div style={{ ...shimmer, width: w, height: h, marginBottom: 8 }} />;
         return (
-            <div className="app-shell">
-                <Sidebar sections={navSections} />
                 <div className="app-main" style={departmentsAppMainStyle}>
                     <TopBar title="Departments" subtitle="Floors and wards by department" />
                     <main style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '20px 24px 24px', background: 'var(--bg-900)' }}>
@@ -361,14 +446,11 @@ export default function DepartmentsManagement() {
                         </div>
                     </main>
                 </div>
-            </div>
         );
     }
 
     return (
-        <div className="app-shell">
-            <Sidebar sections={navSections} />
-
+        <>
             {toast && (
                 <div className="toast-enter" style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '10px 18px', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--success)' }}>check_circle</span>
@@ -414,14 +496,22 @@ export default function DepartmentsManagement() {
                                             </span>
                                         ) : null}
                                     </div>
-                                    <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowAddDept(!showAddDept)} style={{ flexShrink: 0 }}>
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary btn-sm"
+                                        onClick={() => {
+                                            if (showAddDept) resetNewDepartmentForm();
+                                            setShowAddDept(!showAddDept);
+                                        }}
+                                        style={{ flexShrink: 0 }}
+                                    >
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>{showAddDept ? 'close' : 'add'}</span>
                                         {showAddDept ? 'Cancel' : 'Add Department'}
                                     </button>
                                 </div>
 
                                 {showAddDept && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'stretch', maxWidth: 520 }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignSelf: 'stretch', maxWidth: 640 }}>
                                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                                             <input
                                                 className="input"
@@ -429,7 +519,7 @@ export default function DepartmentsManagement() {
                                                 value={newDeptName}
                                                 maxLength={DEPARTMENT_NAME_MAX_LENGTH}
                                                 onChange={e => setNewDeptName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))}
-                                                onKeyDown={e => e.key === 'Enter' && addDepartment()}
+                                                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addDepartment()}
                                                 style={{ fontSize: 13, flex: '1 1 220px', minWidth: 160, maxWidth: '100%', boxSizing: 'border-box' }}
                                                 aria-describedby="dept-name-limit-hint"
                                             />
@@ -437,6 +527,55 @@ export default function DepartmentsManagement() {
                                                 {newDeptName.length}/{DEPARTMENT_NAME_MAX_LENGTH}
                                             </span>
                                             <button type="button" className="btn btn-primary btn-sm" onClick={addDepartment} disabled={!newDeptName.trim()} style={{ flexShrink: 0 }}>Add</button>
+                                        </div>
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+                                                <span className="label" style={{ marginBottom: 0 }}>Description</span>
+                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                                                    {newDeptDescription.length}/{DEPARTMENT_DESCRIPTION_MAX_LENGTH}
+                                                </span>
+                                            </div>
+                                            <textarea
+                                                className="input"
+                                                value={newDeptDescription}
+                                                maxLength={DEPARTMENT_DESCRIPTION_MAX_LENGTH}
+                                                onChange={e => setNewDeptDescription(e.target.value.slice(0, DEPARTMENT_DESCRIPTION_MAX_LENGTH))}
+                                                rows={2}
+                                                style={{ fontSize: 13, minHeight: 52, resize: 'vertical', boxSizing: 'border-box', width: '100%' }}
+                                            />
+                                        </div>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+                                            <div style={{ flex: '1 1 140px', minWidth: 120 }}>
+                                                <label className="label" htmlFor="new-dept-floors" style={{ marginBottom: 6 }}>Number of floors</label>
+                                                <input
+                                                    id="new-dept-floors"
+                                                    className="input"
+                                                    type="number"
+                                                    min={0}
+                                                    step={1}
+                                                    placeholder="Optional"
+                                                    value={newDeptFloorsInput}
+                                                    onChange={e => {
+                                                        const v = e.target.value;
+                                                        if (v === '' || /^\d+$/.test(v)) setNewDeptFloorsInput(v);
+                                                    }}
+                                                    style={{ fontSize: 13, boxSizing: 'border-box', width: '100%' }}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>Wards (optional)</div>
+                                            <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 6px', lineHeight: 1.4 }}>
+                                                One ward name per line. Sent with the create request; the API can create wards and maintain ward count.
+                                            </p>
+                                            <textarea
+                                                className="input"
+                                                value={newDeptWardLines}
+                                                onChange={e => setNewDeptWardLines(e.target.value)}
+                                                placeholder={'e.g.\nICU A\nICU B'}
+                                                rows={4}
+                                                style={{ fontSize: 13, minHeight: 88, resize: 'vertical', boxSizing: 'border-box', width: '100%' }}
+                                            />
                                         </div>
                                     </div>
                                 )}
@@ -512,7 +651,7 @@ export default function DepartmentsManagement() {
                                     <button
                                         key={d.id}
                                         type="button"
-                                        onClick={() => { setEditingDept(d.id); setNewWard(''); setNewFloor(''); }}
+                                        onClick={() => { setEditingDept(d.id); setNewWard(''); }}
                                         style={{
                                             display: 'flex',
                                             alignItems: 'center',
@@ -620,20 +759,20 @@ export default function DepartmentsManagement() {
                                             }}
                                         >
                                             <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
-                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Floors</div>
+                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Floors</div>
+                                                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.45 }}>
+                                                    The API stores a floor count on the department, not separate floor records. Add or remove one floor at a time.
+                                                </p>
                                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10, minHeight: 28 }}>
                                                     {editDept.floors.map(f => (
-                                                        <span key={f.id} className="badge badge-info" style={{ cursor: 'pointer', padding: '6px 10px', fontSize: 12 }} onClick={() => removeFloor(editDept.id, f.id)}>
+                                                        <span key={f.id} className="badge badge-info" style={{ cursor: 'pointer', padding: '6px 10px', fontSize: 12 }} onClick={() => removeFloor(editDept.id)}>
                                                             {f.name}
                                                             <span className="material-icons-round" style={{ fontSize: 12, marginLeft: 4, verticalAlign: 'middle' }}>close</span>
                                                         </span>
                                                     ))}
                                                     {editDept.floors.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No floors yet</span>}
                                                 </div>
-                                                <div style={{ display: 'flex', gap: 8 }}>
-                                                    <input className="input" placeholder="New floor name" value={newFloor} onChange={e => setNewFloor(e.target.value)} onKeyDown={e => e.key === 'Enter' && addFloor(editDept.id)} style={{ fontSize: 13, flex: 1 }} />
-                                                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => addFloor(editDept.id)} disabled={!newFloor.trim()}>Add</button>
-                                                </div>
+                                                <button type="button" className="btn btn-secondary btn-sm" onClick={() => addFloor(editDept.id)}>Add floor</button>
                                             </div>
 
                                             <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
@@ -679,6 +818,6 @@ export default function DepartmentsManagement() {
                     </div>
                 </main>
             </div>
-        </div>
+        </>
     );
 }

@@ -2,9 +2,7 @@
 
 import { Fragment, useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
-import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
-import navSections from '@/components/navSections';
 
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
@@ -77,8 +75,6 @@ export default function UsagePage() {
     const heatStops = ['#fef7f2', '#fde4d8', '#f0a68a', '#e07856', '#c75a3a'];
 
     return (
-        <div className="app-shell">
-            <Sidebar sections={navSections} />
             <div className="app-main">
                 <TopBar title="Usage" subtitle="Messaging & communication analytics" />
                 <main style={{ background: '#f7f8fa', padding: '32px 32px 48px 32px' }}>
@@ -226,6 +222,5 @@ export default function UsagePage() {
                     </div>
                 </main>
             </div>
-        </div>
     );
 }

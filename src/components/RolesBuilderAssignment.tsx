@@ -1,9 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
-import navSections from '@/components/navSections';
 import CustomSelect from '@/components/CustomSelect';
 
 type EscalationLevel = {
@@ -1227,8 +1225,6 @@ export default function RolesBuilderAssignment() {
             borderRadius: 'var(--radius-md)',
         };
         return (
-            <div className="app-shell">
-                <Sidebar sections={navSections} />
                 <div className="app-main">
                     <TopBar title="Roles" subtitle="Role Management" />
                     <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
@@ -1242,14 +1238,11 @@ export default function RolesBuilderAssignment() {
                         </div>
                     </main>
                 </div>
-            </div>
         );
     }
 
     return (
-        <div className="app-shell">
-            <Sidebar sections={navSections} />
-
+        <>
             {toast && (
                 <div className="toast-enter" style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '10px 18px', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--success)' }}>check_circle</span>
@@ -2091,6 +2084,6 @@ export default function RolesBuilderAssignment() {
                     </div>
                 </main>
             </div>
-        </div>
+        </>
     );
 }

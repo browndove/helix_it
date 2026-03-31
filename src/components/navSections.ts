@@ -15,6 +15,7 @@ const navSections = [
             { icon: 'folder_shared', label: 'Patient List', href: '/patient-list' },
             { icon: 'diversity_3', label: 'Provider Teams', href: '/provider-teams' },
             { icon: 'notifications_active', label: 'Escalation Config', href: '/escalation' },
+            { icon: 'forum', label: 'External communication', href: '/external-communication' },
         ],
     },
     {

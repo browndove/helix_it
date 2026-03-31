@@ -1,9 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
-import navSections from '@/components/navSections';
 import { DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
 
 type DeptNode = {
@@ -302,9 +300,7 @@ export default function HospitalProfileWardSetup() {
     const totalBeds = countBeds(tree);
 
     return (
-        <div className="app-shell">
-            <Sidebar sections={navSections} />
-
+        <>
             {/* Toast */}
             {toast && (
                 <div className="toast-enter" style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '10px 18px', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: 8, }}>
@@ -467,6 +463,6 @@ export default function HospitalProfileWardSetup() {
                 </div>
             </main>
             </div>
-        </div>
+        </>
     );
 }

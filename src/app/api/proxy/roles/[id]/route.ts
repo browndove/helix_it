@@ -141,6 +141,9 @@ export async function PUT(
         if (Object.prototype.hasOwnProperty.call(body, 'mandatory') || Object.prototype.hasOwnProperty.call(body, 'priority')) {
             payload.priority = resolvePriority(body);
         }
+        if (Object.prototype.hasOwnProperty.call(body, 'external_messaging')) {
+            payload.external_messaging = Boolean(body.external_messaging);
+        }
         const url = `${API_BASE_URL}/api/v1/roles/${id}`;
 
         console.log('Proxy update role request to:', url);

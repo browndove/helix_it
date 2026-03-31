@@ -1,9 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
-import navSections from '@/components/navSections';
 
 type Hospital = { id: string; name: string; address: string; phone: string; email: string; license_type: string; license_expires_at: string; max_users: number };
 
@@ -22,9 +20,6 @@ export default function DashboardPage() {
     const [ipList, setIpList] = useState<string[]>([]);
     const [newIp, setNewIp] = useState('');
     const [retentionPeriod, setRetentionPeriod] = useState('90');
-    const [externalMessaging, setExternalMessaging] = useState(false);
-    const [allowedExternalDomains, setAllowedExternalDomains] = useState<string[]>([]);
-    const [newDomain, setNewDomain] = useState('');
     const [settingsChanged, setSettingsChanged] = useState(false);
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
@@ -61,14 +56,6 @@ export default function DashboardPage() {
         setSettingsChanged(true);
     };
     const removeIp = (ip: string) => { setIpList(prev => prev.filter(i => i !== ip)); setSettingsChanged(true); };
-    const addDomainEntry = () => {
-        const d = newDomain.trim().toLowerCase();
-        if (!d || allowedExternalDomains.includes(d)) return;
-        setAllowedExternalDomains(prev => [...prev, d]);
-        setNewDomain('');
-        setSettingsChanged(true);
-    };
-    const removeDomainEntry = (d: string) => { setAllowedExternalDomains(prev => prev.filter(x => x !== d)); setSettingsChanged(true); };
     const saveSettings = () => { setSettingsChanged(false); showToast('Settings saved successfully'); };
 
     if (loading) {
@@ -80,8 +67,6 @@ export default function DashboardPage() {
         };
         const line = (w: string, h = 12) => <div style={{ ...shimmer, width: w, height: h, marginBottom: 8 }} />;
         return (
-            <div className="app-shell">
-                <Sidebar sections={navSections} />
                 <div className="app-main">
                     <TopBar title="Home" subtitle="Hospital Setup" />
                     <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
@@ -115,14 +100,11 @@ export default function DashboardPage() {
                         </div>
                     </main>
                 </div>
-            </div>
         );
     }
 
     return (
-        <div className="app-shell">
-            <Sidebar sections={navSections} />
-
+        <>
             {toast && (
                 <div className="toast-enter" style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '10px 18px', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--success)' }}>check_circle</span>
@@ -392,76 +374,11 @@ export default function DashboardPage() {
                                         )}
                                     </div>
                                 </div>
-
-                                {/* External Hospital Messaging */}
-                                <div className="card">
-                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(14,165,233,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                <span className="material-icons-round" style={{ fontSize: 20, color: '#0ea5e9' }}>forum</span>
-                                            </div>
-                                            <div>
-                                                <div style={{ fontSize: 14, fontWeight: 700 }}>External Messaging</div>
-                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>Cross-facility and external communications</div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderRadius: 'var(--radius-md)', background: externalMessaging ? 'rgba(14,165,233,0.06)' : 'var(--surface-2)', border: `1px solid ${externalMessaging ? 'rgba(14,165,233,0.2)' : 'var(--border-subtle)'}`, marginBottom: 14 }}>
-                                        <div>
-                                            <div style={{ fontSize: 13, fontWeight: 600 }}>
-                                                External Messaging {externalMessaging ? 'Enabled' : 'Disabled'}
-                                            </div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                                                {externalMessaging ? 'Staff can communicate with approved external facilities' : 'All messaging is restricted to this facility only'}
-                                            </div>
-                                        </div>
-                                        <div
-                                            onClick={() => { setExternalMessaging(!externalMessaging); setSettingsChanged(true); }}
-                                            style={{ width: 44, height: 24, borderRadius: 12, background: externalMessaging ? '#0ea5e9' : 'var(--border-default)', cursor: 'pointer', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}
-                                        >
-                                            <div style={{ width: 18, height: 18, borderRadius: 9, background: '#fff', position: 'absolute', top: 3, left: externalMessaging ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
-                                        </div>
-                                    </div>
-
-                                    {externalMessaging && (
-                                        <div className="fade-in">
-                                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>Approved External Domains</div>
-                                            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                                                <input className="input" placeholder="e.g. partner-hospital.helix.health" value={newDomain} onChange={e => setNewDomain(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDomainEntry()} style={{ fontSize: 12, flex: 1 }} />
-                                                <button className="btn btn-secondary btn-sm" onClick={addDomainEntry} disabled={!newDomain.trim()}>
-                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>add</span> Add
-                                                </button>
-                                            </div>
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                                {allowedExternalDomains.map(d => (
-                                                    <span key={d} className="badge badge-info" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }} onClick={() => removeDomainEntry(d)}>
-                                                        <span className="material-icons-round" style={{ fontSize: 12 }}>language</span>
-                                                        {d}
-                                                        <span className="material-icons-round" style={{ fontSize: 11 }}>close</span>
-                                                    </span>
-                                                ))}
-                                                {allowedExternalDomains.length === 0 && (
-                                                    <div style={{ padding: '10px 0', fontSize: 12, color: 'var(--text-muted)' }}>No external domains approved yet</div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {!externalMessaging && (
-                                        <div style={{ padding: '8px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--warning)' }}>lock</span>
-                                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Enable to allow cross-facility messaging with approved partners</span>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
                             </div>
                         </div>
                     </div>
                 </main>
             </div>
-        </div>
+        </>
     );
 }

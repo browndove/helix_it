@@ -1,6 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { resolveFacilityId } from '@/lib/proxy-facility';
-import { DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
+import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
@@ -81,6 +81,12 @@ export async function POST(req: NextRequest) {
         if (typeof body.name === 'string' && body.name.trim().length > DEPARTMENT_NAME_MAX_LENGTH) {
             return NextResponse.json(
                 { error: `Department name must be ${DEPARTMENT_NAME_MAX_LENGTH} characters or fewer` },
+                { status: 400 }
+            );
+        }
+        if (typeof body.description === 'string' && body.description.length > DEPARTMENT_DESCRIPTION_MAX_LENGTH) {
+            return NextResponse.json(
+                { error: `Description must be ${DEPARTMENT_DESCRIPTION_MAX_LENGTH} characters or fewer` },
                 { status: 400 }
             );
         }

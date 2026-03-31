@@ -1,5 +1,6 @@
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
+import { clearAdminSidebarSession } from '@/lib/facilityDisplayCache';
 
 export function useAuth() {
     const router = useRouter();
@@ -18,6 +19,7 @@ export function useAuth() {
             }
 
             onToast?.(data.message || 'Logged out successfully', 'success');
+            clearAdminSidebarSession();
             router.push('/');
             return true;
         } catch (err) {
