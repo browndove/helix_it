@@ -30,6 +30,7 @@ export default function InternalDashboardPage() {
         address: '',
         admin_email: '',
         email: '',
+        contact_phone: '',
         primary_contact_first_name: '',
         primary_contact_last_name: '',
         primary_contact_email: '',
@@ -100,6 +101,7 @@ export default function InternalDashboardPage() {
             address: '',
             admin_email: '',
             email: '',
+            contact_phone: '',
             primary_contact_first_name: '',
             primary_contact_last_name: '',
             primary_contact_email: '',
@@ -120,6 +122,7 @@ export default function InternalDashboardPage() {
                 address: form.address || undefined,
                 admin_email: form.admin_email || undefined,
                 city: form.city || undefined,
+                contact_phone: form.contact_phone || undefined,
                 email: form.email || undefined,
                 primary_contact_email: form.primary_contact_email || undefined,
                 primary_contact_first_name: form.primary_contact_first_name || undefined,
@@ -220,15 +223,19 @@ export default function InternalDashboardPage() {
                 </div>
             </div>
 
-            {sectionTitle('Emails')}
+            {sectionTitle('Facility Contact')}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px', marginBottom: 20 }}>
                 <div>
-                    <label style={labelStyle}>Admin Email</label>
+                    <label style={labelStyle}>Facility Contact</label>
                     <input style={fieldStyle} type="email" value={form.admin_email} onChange={e => setForm(f => ({ ...f, admin_email: e.target.value }))} placeholder="admin@facility.com" />
                 </div>
                 <div>
                     <label style={labelStyle}>Facility Email</label>
                     <input style={fieldStyle} type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="info@facility.com" />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={labelStyle}>Contact Phone</label>
+                    <input style={fieldStyle} value={form.contact_phone} onChange={e => setForm(f => ({ ...f, contact_phone: e.target.value }))} placeholder="+233 XX XXX XXXX" />
                 </div>
             </div>
 
