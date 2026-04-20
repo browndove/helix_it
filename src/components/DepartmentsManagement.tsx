@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import TopBar from '@/components/TopBar';
 import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
+import { useFacilityView } from '@/contexts/FacilityViewContext';
 
 /** Lock main column to the viewport so only inner panes scroll (not the document). */
 const departmentsAppMainStyle = {
@@ -28,15 +29,21 @@ type Department = {
 function normalizeDepartment(raw: Partial<Department> & Record<string, unknown>): Department {
     const desc = raw.description;
     const apiFloors = Array.isArray(raw.floors) ? (raw.floors as FloorItem[]) : [];
+    const deptId = String(raw.id || 'dept');
+    const nRaw = raw.number_of_floors;
+    const explicitCount =
+        typeof nRaw === 'number' && Number.isFinite(nRaw) && nRaw >= 0 ? Math.floor(nRaw) : undefined;
+    /** Prefer API field `number_of_floors` when present — backend may return a stale `floors` array after count changes. */
     let number_of_floors: number;
-    if (apiFloors.length > 0) {
+    if (explicitCount !== undefined) {
+        number_of_floors = explicitCount;
+    } else if (apiFloors.length > 0) {
         number_of_floors = apiFloors.length;
     } else {
-        const n = raw.number_of_floors;
-        number_of_floors = typeof n === 'number' && Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+        number_of_floors = 0;
     }
-    const deptId = String(raw.id || 'dept');
-    const floors = apiFloors.length > 0
+    const useApiFloors = apiFloors.length > 0 && apiFloors.length === number_of_floors;
+    const floors = useApiFloors
         ? apiFloors
         : Array.from({ length: number_of_floors }, (_, i) => ({
             id: `${deptId}-floor-${i + 1}`,
@@ -53,6 +60,8 @@ function normalizeDepartment(raw: Partial<Department> & Record<string, unknown>)
 }
 
 export default function DepartmentsManagement() {
+    const facilityView = useFacilityView();
+    const facilityIdFromContext = facilityView?.facilityId || '';
     const [hospitalId, setHospitalId] = useState('');
     const [departments, setDepartments] = useState<Department[]>([]);
     const [toast, setToast] = useState<string | null>(null);
@@ -89,15 +98,20 @@ export default function DepartmentsManagement() {
 
     const fetchData = useCallback(async () => {
         try {
-            const hRes = await fetch('/api/proxy/hospital');
-            let facilityId = '';
-            if (hRes.ok) {
-                const h = await hRes.json();
-                facilityId = h.id || '';
+            const facilityId = facilityIdFromContext;
+            if (facilityId) {
                 setHospitalId(facilityId);
+            } else {
+                const hRes = await fetch('/api/proxy/hospital');
+                if (hRes.ok) {
+                    const h = await hRes.json();
+                    const resolved = h.id || '';
+                    setHospitalId(resolved);
+                }
             }
-            const deptUrl = facilityId
-                ? `/api/proxy/departments?facility_id=${facilityId}`
+            const effectiveFacilityId = facilityId || hospitalId;
+            const deptUrl = effectiveFacilityId
+                ? `/api/proxy/departments?facility_id=${effectiveFacilityId}`
                 : '/api/proxy/departments';
             const dRes = await fetch(deptUrl);
             if (dRes.ok) {
@@ -106,7 +120,7 @@ export default function DepartmentsManagement() {
             }
         } catch { showToast('Failed to load departments'); }
         setLoading(false);
-    }, [showToast]);
+    }, [facilityIdFromContext, hospitalId, showToast]);
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -157,7 +171,8 @@ export default function DepartmentsManagement() {
                         ...d,
                         name: normalized.name,
                         description: normalized.description,
-                        floors: Array.isArray(raw.floors) ? normalized.floors : d.floors,
+                        number_of_floors: normalized.number_of_floors,
+                        floors: normalized.floors,
                         wards: Array.isArray(raw.wards) ? normalized.wards : d.wards,
                     };
                 }));
@@ -353,18 +368,31 @@ export default function DepartmentsManagement() {
 
     /** Helix API has no POST /departments/{id}/floors — floor count is updated incrementally on the department (PUT). */
     const putDepartmentFloorCount = async (deptId: string, nextCount: number): Promise<boolean> => {
-        const d = departments.find(x => x.id === deptId);
-        if (!d) return false;
         const n = Math.max(0, Math.floor(nextCount));
+        let snapshot: Department | null = null;
+        setDepartments(prev => {
+            const d = prev.find(x => x.id === deptId);
+            if (!d) return prev;
+            snapshot = d;
+            const optimistic = normalizeDepartment({
+                ...d,
+                number_of_floors: n,
+                floors: [],
+            } as Partial<Department> & Record<string, unknown>);
+            return prev.map(x => (x.id === deptId ? optimistic : x));
+        });
+        if (!snapshot) return false;
+        const previous: Department = snapshot;
+
         try {
             const res = await fetch(`/api/proxy/departments/${deptId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    name: d.name,
-                    description: d.description || '',
+                    name: previous.name,
+                    description: previous.description || '',
                     number_of_floors: n,
-                    number_of_wards: d.wards.length,
+                    number_of_wards: previous.wards.length,
                 }),
             });
             const rawText = await res.text();
@@ -374,21 +402,33 @@ export default function DepartmentsManagement() {
                     payload = JSON.parse(rawText) as Record<string, unknown>;
                 } catch {
                     if (!res.ok) {
+                        setDepartments(prev => prev.map(x => (x.id === deptId ? previous : x)));
                         showToast('Failed to update floors');
                         return false;
                     }
                 }
             }
             if (!res.ok) {
+                setDepartments(prev => prev.map(x => (x.id === deptId ? previous : x)));
                 const msg = typeof payload.error === 'string' ? payload.error : typeof payload.detail === 'string' ? payload.detail : 'Failed to update floors';
                 showToast(msg);
                 return false;
             }
-            const merged = { ...d, ...payload, number_of_floors: n, wards: Array.isArray(payload.wards) ? payload.wards as WardItem[] : d.wards };
-            const updated = normalizeDepartment(merged as Partial<Department> & Record<string, unknown>);
-            setDepartments(prev => prev.map(x => (x.id === deptId ? updated : x)));
+            setDepartments(prev =>
+                prev.map(x => {
+                    if (x.id !== deptId) return x;
+                    const merged = {
+                        ...x,
+                        ...payload,
+                        number_of_floors: n,
+                        wards: Array.isArray(payload.wards) ? (payload.wards as WardItem[]) : x.wards,
+                    };
+                    return normalizeDepartment(merged as Partial<Department> & Record<string, unknown>);
+                }),
+            );
             return true;
         } catch {
+            setDepartments(prev => prev.map(x => (x.id === deptId ? previous : x)));
             showToast('Failed to update floors');
             return false;
         }

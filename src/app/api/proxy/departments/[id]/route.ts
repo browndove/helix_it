@@ -1,8 +1,33 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
+import { resolveFacilityId } from '@/lib/proxy-facility';
 import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+
+async function resolveDepartmentRequestFacility(
+    req: NextRequest,
+    body?: Record<string, unknown>
+): Promise<string | NextResponse> {
+    const sessionFacilityId = await resolveFacilityId(req, API_BASE_URL);
+    if (!sessionFacilityId) {
+        return NextResponse.json(
+            { error: 'Unable to resolve facility for current session. Please log in again.' },
+            { status: 400 }
+        );
+    }
+    const { searchParams } = new URL(req.url);
+    const q = searchParams.get('facility_id');
+    const fromBody = body ? String(body.facility_id || body.facilityId || '').trim() : '';
+    const requested = (q && q.trim()) || fromBody;
+    if (requested && requested !== sessionFacilityId) {
+        return NextResponse.json(
+            { error: 'Facility mismatch. Departments are restricted to your logged-in facility.' },
+            { status: 403 }
+        );
+    }
+    return sessionFacilityId;
+}
 
 // GET /departments/{id} - Get a department
 export async function GET(
@@ -11,11 +36,15 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/departments/${id}`;
+        const facilityResolved = await resolveDepartmentRequestFacility(req);
+        if (facilityResolved instanceof NextResponse) return facilityResolved;
 
-        console.log('Proxy get department request to:', url);
+        const url = new URL(`${API_BASE_URL}/api/v1/departments/${id}`);
+        url.searchParams.set('facility_id', facilityResolved);
 
-        const res = await fetch(url, {
+        console.log('Proxy get department request to:', url.toString());
+
+        const res = await fetch(url.toString(), {
             method: 'GET',
             headers: getProxyHeaders(req),
         });
@@ -62,6 +91,10 @@ export async function PUT(
                 { status: 400 }
             );
         }
+        const facilityResolved = await resolveDepartmentRequestFacility(req, body);
+        if (facilityResolved instanceof NextResponse) return facilityResolved;
+        const payload = { ...body, facility_id: facilityResolved };
+
         const url = `${API_BASE_URL}/api/v1/departments/${id}`;
 
         console.log('Proxy update department request to:', url);
@@ -69,7 +102,7 @@ export async function PUT(
         const res = await fetch(url, {
             method: 'PUT',
             headers: getProxyHeaders(req),
-            body: JSON.stringify(body as object),
+            body: JSON.stringify(payload),
         });
 
         const text = await res.text();
@@ -101,11 +134,15 @@ export async function DELETE(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/departments/${id}`;
+        const facilityResolved = await resolveDepartmentRequestFacility(req);
+        if (facilityResolved instanceof NextResponse) return facilityResolved;
 
-        console.log('Proxy delete department request to:', url);
+        const url = new URL(`${API_BASE_URL}/api/v1/departments/${id}`);
+        url.searchParams.set('facility_id', facilityResolved);
 
-        const res = await fetch(url, {
+        console.log('Proxy delete department request to:', url.toString());
+
+        const res = await fetch(url.toString(), {
             method: 'DELETE',
             headers: getProxyHeaders(req),
         });

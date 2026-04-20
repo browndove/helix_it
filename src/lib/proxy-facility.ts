@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getTokenFromCookie } from '@/lib/proxy-auth';
 
 const FACILITY_CACHE_TTL_MS = 60_000;
@@ -126,4 +126,36 @@ export async function resolveFacilityId(req: NextRequest, apiBaseUrl: string): P
     }
 
     return undefined;
+}
+
+/**
+ * Facility from session (helix-facility cookie or auth/me), with optional client hint
+ * (query/body facility_id). If the session has no facility — common for internal admins —
+ * a non-empty hint is accepted so proxies can still forward scoped requests.
+ */
+export async function resolveFacilityOrClientHint(
+    req: NextRequest,
+    apiBaseUrl: string,
+    clientHint: string | null | undefined
+): Promise<{ ok: true; facilityId: string } | { ok: false; response: NextResponse }> {
+    const hint = String(clientHint || '').trim();
+    const session = await resolveFacilityId(req, apiBaseUrl);
+    if (session) {
+        if (hint && hint !== session) {
+            return { ok: false, response: NextResponse.json({ error: 'Facility mismatch.' }, { status: 403 }) };
+        }
+        return { ok: true, facilityId: session };
+    }
+    if (hint) {
+        return { ok: true, facilityId: hint };
+    }
+    return {
+        ok: false,
+        response: NextResponse.json(
+            {
+                error: 'Unable to resolve facility. Open a facility from the internal dashboard (sets helix-facility) or pass facility_id in the query/body.',
+            },
+            { status: 400 },
+        ),
+    };
 }

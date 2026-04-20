@@ -1,7 +1,16 @@
-import { getProxyHeaders } from '@/lib/proxy-auth';
+import { getProxyHeadersWithFacility } from '@/lib/proxy-auth';
+import { resolveFacilityOrClientHint } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+
+function clientFacilityHint(req: NextRequest, body?: Record<string, unknown>): string | null {
+    const q = new URL(req.url).searchParams.get('facility_id');
+    if (q?.trim()) return q.trim();
+    if (!body) return null;
+    const fromBody = String(body.facility_id || body.facilityId || '').trim();
+    return fromBody || null;
+}
 
 // GET /staff/{id} - Get a staff member
 export async function GET(
@@ -10,13 +19,17 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/staff/${id}`;
+        const resolved = await resolveFacilityOrClientHint(req, API_BASE_URL, clientFacilityHint(req));
+        if (!resolved.ok) return resolved.response;
 
-        console.log('Proxy get staff member request to:', url);
+        const url = new URL(`${API_BASE_URL}/api/v1/staff/${id}`);
+        url.searchParams.set('facility_id', resolved.facilityId);
 
-        const res = await fetch(url, {
+        console.log('Proxy get staff member request to:', url.toString());
+
+        const res = await fetch(url.toString(), {
             method: 'GET',
-            headers: getProxyHeaders(req),
+            headers: getProxyHeadersWithFacility(req, resolved.facilityId),
         });
 
         const text = await res.text();
@@ -48,15 +61,26 @@ export async function PUT(
 ) {
     try {
         const { id } = await params;
-        const body = await req.json();
-        const url = `${API_BASE_URL}/api/v1/staff/${id}`;
+        const body = (await req.json()) as Record<string, unknown>;
+        const resolved = await resolveFacilityOrClientHint(req, API_BASE_URL, clientFacilityHint(req, body));
+        if (!resolved.ok) return resolved.response;
 
-        console.log('Proxy update staff member request to:', url);
+        const url = new URL(`${API_BASE_URL}/api/v1/staff/${id}`);
+        url.searchParams.set('facility_id', resolved.facilityId);
 
-        const res = await fetch(url, {
+        const payload = {
+            ...body,
+            facility_id: resolved.facilityId,
+            facilityId: resolved.facilityId,
+            current_facility_id: resolved.facilityId,
+        };
+
+        console.log('Proxy update staff member request to:', url.toString());
+
+        const res = await fetch(url.toString(), {
             method: 'PUT',
-            headers: getProxyHeaders(req),
-            body: JSON.stringify(body),
+            headers: getProxyHeadersWithFacility(req, resolved.facilityId),
+            body: JSON.stringify(payload),
         });
 
         const text = await res.text();
@@ -88,13 +112,17 @@ export async function DELETE(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/staff/${id}`;
+        const resolved = await resolveFacilityOrClientHint(req, API_BASE_URL, clientFacilityHint(req));
+        if (!resolved.ok) return resolved.response;
 
-        console.log('Proxy delete staff member request to:', url);
+        const url = new URL(`${API_BASE_URL}/api/v1/staff/${id}`);
+        url.searchParams.set('facility_id', resolved.facilityId);
 
-        const res = await fetch(url, {
+        console.log('Proxy delete staff member request to:', url.toString());
+
+        const res = await fetch(url.toString(), {
             method: 'DELETE',
-            headers: getProxyHeaders(req),
+            headers: getProxyHeadersWithFacility(req, resolved.facilityId),
         });
 
         const text = await res.text();

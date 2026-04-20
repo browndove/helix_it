@@ -1,4 +1,5 @@
-import { getProxyHeaders } from '@/lib/proxy-auth';
+import { getProxyHeadersWithFacility } from '@/lib/proxy-auth';
+import { resolveFacilityOrClientHint } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
@@ -9,9 +10,16 @@ export async function DELETE(
 ) {
     try {
         const { id, patient_id } = await params;
-        const res = await fetch(`${API_BASE_URL}/api/v1/patient-folders/${id}/patients/${patient_id}`, {
+        const queryFid = new URL(req.url).searchParams.get('facility_id');
+        const resolved = await resolveFacilityOrClientHint(req, API_BASE_URL, queryFid);
+        if (!resolved.ok) return resolved.response;
+
+        const url = new URL(`${API_BASE_URL}/api/v1/patient-folders/${id}/patients/${patient_id}`);
+        url.searchParams.set('facility_id', resolved.facilityId);
+
+        const res = await fetch(url.toString(), {
             method: 'DELETE',
-            headers: getProxyHeaders(req),
+            headers: getProxyHeadersWithFacility(req, resolved.facilityId),
         });
         if (res.status === 204 || res.status === 205) {
             return new NextResponse(null, { status: res.status });
@@ -32,4 +40,3 @@ export async function DELETE(
         return NextResponse.json({ error: 'Proxy error', details: message }, { status: 500 });
     }
 }
-

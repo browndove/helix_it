@@ -1,5 +1,5 @@
-import { getProxyHeaders } from '@/lib/proxy-auth';
-import { resolveFacilityId } from '@/lib/proxy-facility';
+import { getProxyHeadersWithFacility } from '@/lib/proxy-auth';
+import { resolveFacilityOrClientHint } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
@@ -17,20 +17,15 @@ export async function GET(req: NextRequest) {
         const { searchParams } = new URL(req.url);
         const url = new URL(`${API_BASE_URL}/api/v1/patient-folders`);
 
-        const requestedFacilityId = searchParams.get('facility_id');
-        const sessionFacilityId = await resolveFacilityId(req, API_BASE_URL);
-        if (!sessionFacilityId) {
-            return NextResponse.json({ error: 'Unable to resolve facility for current session.' }, { status: 400 });
-        }
-        if (requestedFacilityId && requestedFacilityId !== sessionFacilityId) {
-            return NextResponse.json({ error: 'Facility mismatch.' }, { status: 403 });
-        }
+        const clientHint = searchParams.get('facility_id');
+        const resolved = await resolveFacilityOrClientHint(req, API_BASE_URL, clientHint);
+        if (!resolved.ok) return resolved.response;
 
-        url.searchParams.set('facility_id', sessionFacilityId);
+        url.searchParams.set('facility_id', resolved.facilityId);
 
         const res = await fetch(url.toString(), {
             method: 'GET',
-            headers: getProxyHeaders(req),
+            headers: getProxyHeadersWithFacility(req, resolved.facilityId),
         });
         const text = await res.text();
         let data: unknown;
@@ -51,26 +46,30 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
     try {
+        const incomingUrl = new URL(req.url);
+        const queryFid = incomingUrl.searchParams.get('facility_id');
         const body = await req.json() as CreateFolderBody;
-        const requestedFacilityId = body.facility_id || body.facilityId;
-        const sessionFacilityId = await resolveFacilityId(req, API_BASE_URL);
-        if (!sessionFacilityId) {
-            return NextResponse.json({ error: 'Unable to resolve facility for current session.' }, { status: 400 });
-        }
-        if (requestedFacilityId && requestedFacilityId !== sessionFacilityId) {
-            return NextResponse.json({ error: 'Facility mismatch.' }, { status: 403 });
-        }
+        const clientHint = body.facility_id || body.facilityId || queryFid;
+        const resolved = await resolveFacilityOrClientHint(req, API_BASE_URL, clientHint);
+        if (!resolved.ok) return resolved.response;
+
+        const { facilityId } = resolved;
 
         const payload = {
-            facility_id: sessionFacilityId,
+            facility_id: facilityId,
+            facilityId: facilityId,
+            current_facility_id: facilityId,
             name: (body.name || '').trim(),
             description: (body.description || '').trim() || undefined,
             visibility: 'public' as const,
         };
 
-        const res = await fetch(`${API_BASE_URL}/api/v1/patient-folders`, {
+        const url = new URL(`${API_BASE_URL}/api/v1/patient-folders`);
+        url.searchParams.set('facility_id', facilityId);
+
+        const res = await fetch(url.toString(), {
             method: 'POST',
-            headers: getProxyHeaders(req),
+            headers: getProxyHeadersWithFacility(req, facilityId),
             body: JSON.stringify(payload),
         });
 
@@ -90,4 +89,3 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Proxy error', details: message }, { status: 500 });
     }
 }
-

@@ -1,8 +1,16 @@
-import { getProxyHeaders } from '@/lib/proxy-auth';
-import { resolveFacilityId } from '@/lib/proxy-facility';
+import { getProxyHeadersWithFacility } from '@/lib/proxy-auth';
+import { resolveFacilityOrClientHint } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+
+function clientFacilityHint(req: NextRequest, body?: Record<string, unknown>): string | null {
+    const q = new URL(req.url).searchParams.get('facility_id');
+    if (q?.trim()) return q.trim();
+    if (!body) return null;
+    const fromBody = String(body.facility_id || body.facilityId || '').trim();
+    return fromBody || null;
+}
 
 // POST /staff/{id}/assign-role - Assign a system role at a facility
 export async function POST(
@@ -11,24 +19,24 @@ export async function POST(
 ) {
     try {
         const { id } = await params;
-        const body = await req.json();
+        const body = (await req.json()) as Record<string, unknown>;
+        const resolved = await resolveFacilityOrClientHint(req, API_BASE_URL, clientFacilityHint(req, body));
+        if (!resolved.ok) return resolved.response;
 
-        // Resolve facility_id if not provided in the body
-        if (!body.facility_id) {
-            const facilityId = await resolveFacilityId(req, API_BASE_URL);
-            if (facilityId) {
-                body.facility_id = facilityId;
-            }
-        }
+        const payload = {
+            ...body,
+            facility_id: resolved.facilityId,
+            facilityId: resolved.facilityId,
+        };
 
         const url = `${API_BASE_URL}/api/v1/staff/${id}/assign-role`;
 
-        console.log('Proxy assign-role request to:', url, body);
+        console.log('Proxy assign-role request to:', url, payload);
 
         const res = await fetch(url, {
             method: 'POST',
-            headers: getProxyHeaders(req),
-            body: JSON.stringify(body),
+            headers: getProxyHeadersWithFacility(req, resolved.facilityId),
+            body: JSON.stringify(payload),
         });
 
         const text = await res.text();

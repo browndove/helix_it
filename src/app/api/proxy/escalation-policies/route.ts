@@ -47,16 +47,24 @@ export async function GET(req: NextRequest) {
 // POST /escalation-policies - Create escalation policy
 export async function POST(req: NextRequest) {
     try {
+        const { searchParams } = new URL(req.url);
+        const facilityId = searchParams.get('facility_id') || await resolveFacilityId(req, API_BASE_URL);
+
         const body = await req.json();
+        const payload = {
+            ...body,
+            ...(facilityId ? { facility_id: facilityId } : {}),
+        };
+
         const url = `${API_BASE_URL}/api/v1/escalation-policies`;
 
-        console.log('[createPolicy] Payload:', JSON.stringify(body));
+        console.log('[createPolicy] Payload:', JSON.stringify(payload));
         console.log('[createPolicy] Request to:', url);
 
         const res = await fetch(url, {
             method: 'POST',
             headers: getProxyHeaders(req),
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
         });
 
         const text = await res.text();

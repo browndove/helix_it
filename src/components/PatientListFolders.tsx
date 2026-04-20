@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import TopBar from '@/components/TopBar';
+import { useFacilityView } from '@/contexts/FacilityViewContext';
 
 type Folder = {
     id: string;
@@ -24,6 +25,12 @@ function parseFolder(rec: unknown, idx = 0): Folder | null {
     };
 }
 
+function readHelixFacilityCookie(): string {
+    if (typeof document === 'undefined') return '';
+    const m = document.cookie.match(/(?:^|; )helix-facility=([^;]*)/);
+    return m ? decodeURIComponent(m[1].trim()) : '';
+}
+
 function parseFolders(raw: unknown): Folder[] {
     const list = Array.isArray(raw)
         ? raw
@@ -40,6 +47,15 @@ function parseFolders(raw: unknown): Folder[] {
 }
 
 export default function PatientListFolders() {
+    const facilityView = useFacilityView();
+    const facilityFromContext = facilityView?.facilityId?.trim() || '';
+    const [cookieFacility, setCookieFacility] = useState('');
+    useEffect(() => {
+        setCookieFacility(readHelixFacilityCookie());
+    }, []);
+    const facilityForApi = (facilityFromContext || cookieFacility).trim();
+    const facilityQuery = facilityForApi ? `?facility_id=${encodeURIComponent(facilityForApi)}` : '';
+
     const [folders, setFolders] = useState<Folder[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
@@ -58,7 +74,7 @@ export default function PatientListFolders() {
 
     const fetchData = useCallback(async () => {
         try {
-            const folderRes = await fetch('/api/proxy/patient-folders');
+            const folderRes = await fetch(`/api/proxy/patient-folders${facilityQuery}`);
             if (folderRes.ok) {
                 const folderData = parseFolders(await folderRes.json());
                 setFolders(folderData);
@@ -67,7 +83,7 @@ export default function PatientListFolders() {
             showToast('Failed to load patient folders');
         }
         setLoading(false);
-    }, []);
+    }, [facilityQuery]);
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -78,7 +94,7 @@ export default function PatientListFolders() {
         let cancelled = false;
         (async () => {
             try {
-                const res = await fetch(`/api/proxy/patient-folders/${selectedFolderId}`);
+                const res = await fetch(`/api/proxy/patient-folders/${selectedFolderId}${facilityQuery}`);
                 if (!res.ok || cancelled) return;
                 const data = await res.json();
                 const parsed = parseFolder(data, 0);
@@ -89,7 +105,7 @@ export default function PatientListFolders() {
             } catch { /* silent */ }
         })();
         return () => { cancelled = true; };
-    }, [selectedFolderId]);
+    }, [selectedFolderId, facilityQuery]);
 
     const filtered = folders.filter(f => {
         if (search.trim()) {
@@ -114,10 +130,19 @@ export default function PatientListFolders() {
                 body: JSON.stringify({
                     name: newName.trim(),
                     description: newDesc.trim(),
+                    ...(facilityForApi ? { facility_id: facilityForApi } : {}),
                 }),
             });
             if (!res.ok) {
-                showToast('Failed to create folder');
+                let msg = 'Failed to create folder';
+                try {
+                    const err = await res.json() as { message?: string; detail?: string; error?: string };
+                    msg = (typeof err.message === 'string' && err.message.trim())
+                        || (typeof err.detail === 'string' && err.detail.trim())
+                        || (typeof err.error === 'string' && err.error.trim())
+                        || msg;
+                } catch { /* use default */ }
+                showToast(msg);
                 return;
             }
 
@@ -126,7 +151,7 @@ export default function PatientListFolders() {
             const folderId = finalFolder?.id;
             if (folderId) {
                 try {
-                    const refetchRes = await fetch(`/api/proxy/patient-folders/${folderId}`);
+                    const refetchRes = await fetch(`/api/proxy/patient-folders/${folderId}${facilityQuery}`);
                     if (refetchRes.ok) {
                         const refetched = await refetchRes.json();
                         finalFolder = parseFolder(refetched, 0) || finalFolder;
@@ -150,7 +175,7 @@ export default function PatientListFolders() {
     const handleDeleteFolder = async (id: string) => {
         const folder = folders.find(f => f.id === id);
         try {
-            const res = await fetch(`/api/proxy/patient-folders/${id}`, { method: 'DELETE' });
+            const res = await fetch(`/api/proxy/patient-folders/${id}${facilityQuery}`, { method: 'DELETE' });
             if (!res.ok) {
                 showToast('Failed to delete folder');
                 return;
@@ -166,12 +191,13 @@ export default function PatientListFolders() {
     const handleSaveEdit = async () => {
         if (!selectedFolder || !editName.trim()) return;
         try {
-            const res = await fetch(`/api/proxy/patient-folders/${selectedFolder.id}`, {
+            const res = await fetch(`/api/proxy/patient-folders/${selectedFolder.id}${facilityQuery}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: editName.trim(),
                     description: editDesc.trim(),
+                    ...(facilityForApi ? { facility_id: facilityForApi } : {}),
                 }),
             });
             if (!res.ok) {

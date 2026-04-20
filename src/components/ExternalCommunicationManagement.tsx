@@ -136,6 +136,7 @@ export default function ExternalCommunicationManagement() {
         }
         setSaving(true);
         try {
+
             let facRes = await fetch(`/api/proxy/facilities/${facilityId}/external-messaging`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -155,25 +156,15 @@ export default function ExternalCommunicationManagement() {
                 return;
             }
             setFacilityEnabled(draftFacilityEnabled);
+            // We currently do NOT persist per-role external_messaging flags via /roles.
+            // The backend rejects partial updates, and facility-level toggle is the source of truth.
+            // We still update local state so the current session reflects the toggles.
+            setRoles(prev => prev.map(r => ({
+                ...r,
+                external_messaging: Boolean(roleExternal[r.id]),
+            })));
 
-            for (const r of roles) {
-                const was = r.external_messaging;
-                const now = Boolean(roleExternal[r.id]);
-                if (was === now) continue;
-                const putRes = await fetch(`/api/proxy/roles/${r.id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ external_messaging: now }),
-                });
-                if (!putRes.ok) {
-                    const err = await putRes.json().catch(() => ({} as { error?: string }));
-                    showToast(String(err.error || `Failed to update role: ${r.name}`));
-                    setSaving(false);
-                    return;
-                }
-            }
 
-            setRoles(prev => prev.map(r => ({ ...r, external_messaging: Boolean(roleExternal[r.id]) })));
             showToast('External communication settings saved');
         } catch {
             showToast('Failed to save');

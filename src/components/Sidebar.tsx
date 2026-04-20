@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
+import { useFacilityView } from '@/contexts/FacilityViewContext';
 import {
     isLikelyFacilityDisplayName,
     readCachedSidebarUser,
@@ -84,6 +85,8 @@ export default function Sidebar({
     adminRole,
 }: SidebarProps) {
     const pathname = usePathname();
+    const facilityView = useFacilityView();
+    const inFacilityShell = pathname.startsWith('/facility/');
     const isSettingsActive = pathname === '/settings';
     const [sessionUser, setSessionUser] = useState<{ name: string; email: string; role: string } | null>(null);
     const [facilityName, setFacilityName] = useState<string | null>(null);
@@ -164,7 +167,10 @@ export default function Sidebar({
         return () => { cancelled = true; };
     }, []);
 
-    const hospitalName = facilityName || hospitalNameProp || 'Facility';
+    const hospitalName = (inFacilityShell && facilityView?.facilityName)
+        || facilityName
+        || hospitalNameProp
+        || 'Facility';
     const adminName = adminNameProp || sessionUser?.name || 'User';
     const resolvedAdminRole = adminRole || sessionUser?.role || 'Admin';
 

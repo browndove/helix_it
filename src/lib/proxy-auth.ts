@@ -18,6 +18,19 @@ export function getProxyHeaders(req: NextRequest): HeadersInit {
 }
 
 /**
+ * Same as getProxyHeaders plus X-Facility-Id for upstream routes that require
+ * explicit facility scope for internal-admin tokens.
+ */
+export function getProxyHeadersWithFacility(req: NextRequest, facilityId?: string): Record<string, string> {
+    const base = { ...(getProxyHeaders(req) as Record<string, string>) };
+    const fid = facilityId?.trim();
+    if (fid) {
+        base['X-Facility-Id'] = fid;
+    }
+    return base;
+}
+
+/**
  * Gets just the token string from the cookie.
  */
 export function getTokenFromCookie(req: NextRequest): string | undefined {

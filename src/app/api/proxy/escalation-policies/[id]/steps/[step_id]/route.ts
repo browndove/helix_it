@@ -1,4 +1,5 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
+import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
@@ -10,11 +11,15 @@ export async function DELETE(
 ) {
     try {
         const { id, step_id } = await params;
-        const url = `${API_BASE_URL}/api/v1/escalation-policies/${id}/steps/${step_id}`;
+        const { searchParams } = new URL(req.url);
+        const facilityId = searchParams.get('facility_id') || await resolveFacilityId(req, API_BASE_URL);
 
-        console.log('Proxy delete escalation step request to:', url);
+        const url = new URL(`${API_BASE_URL}/api/v1/escalation-policies/${id}/steps/${step_id}`);
+        if (facilityId) url.searchParams.set('facility_id', facilityId);
 
-        const res = await fetch(url, {
+        console.log('Proxy delete escalation step request to:', url.toString());
+
+        const res = await fetch(url.toString(), {
             method: 'DELETE',
             headers: getProxyHeaders(req),
         });

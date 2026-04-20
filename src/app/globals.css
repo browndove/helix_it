@@ -921,3 +921,36 @@ select.input {
 @media (min-width: 2560px) {
   :root { --sidebar-width: 300px; }
 }
+
+/* Internal facilities dashboard — light clinical shell + subtle dot texture */
+.helix-page-texture {
+  background-color: var(--bg-900);
+  background-image: radial-gradient(circle at 1px 1px, rgba(30, 58, 95, 0.042) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+
+@media (max-width: 900px) {
+  .internal-dashboard-charts-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 1100px) {
+  .internal-dashboard-split {
+    flex-direction: column;
+  }
+
+  .internal-dashboard-aside {
+    width: 100%;
+  }
+
+  .internal-dashboard-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .internal-dashboard-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}

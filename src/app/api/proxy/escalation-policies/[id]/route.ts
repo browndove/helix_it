@@ -1,4 +1,5 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
+import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
@@ -10,11 +11,15 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/escalation-policies/${id}`;
+        const { searchParams } = new URL(req.url);
+        const facilityId = searchParams.get('facility_id') || await resolveFacilityId(req, API_BASE_URL);
 
-        console.log('Proxy get escalation-policy request to:', url);
+        const url = new URL(`${API_BASE_URL}/api/v1/escalation-policies/${id}`);
+        if (facilityId) url.searchParams.set('facility_id', facilityId);
 
-        const res = await fetch(url, {
+        console.log('Proxy get escalation-policy request to:', url.toString());
+
+        const res = await fetch(url.toString(), {
             method: 'GET',
             headers: getProxyHeaders(req),
         });
@@ -39,15 +44,24 @@ export async function PUT(
 ) {
     try {
         const { id } = await params;
+        const { searchParams } = new URL(req.url);
+        const facilityId = searchParams.get('facility_id') || await resolveFacilityId(req, API_BASE_URL);
+
         const body = await req.json();
+        const payload = {
+            ...body,
+            ...(facilityId ? { facility_id: facilityId } : {}),
+        };
+
         const url = `${API_BASE_URL}/api/v1/escalation-policies/${id}`;
 
         console.log('Proxy update escalation-policy request to:', url);
 
+
         const res = await fetch(url, {
             method: 'PUT',
             headers: getProxyHeaders(req),
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
         });
 
         const text = await res.text();
@@ -70,11 +84,15 @@ export async function DELETE(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/escalation-policies/${id}`;
+        const { searchParams } = new URL(req.url);
+        const facilityId = searchParams.get('facility_id') || await resolveFacilityId(req, API_BASE_URL);
 
-        console.log('Proxy delete escalation-policy request to:', url);
+        const url = new URL(`${API_BASE_URL}/api/v1/escalation-policies/${id}`);
+        if (facilityId) url.searchParams.set('facility_id', facilityId);
 
-        const res = await fetch(url, {
+        console.log('Proxy delete escalation-policy request to:', url.toString());
+
+        const res = await fetch(url.toString(), {
             method: 'DELETE',
             headers: getProxyHeaders(req),
         });

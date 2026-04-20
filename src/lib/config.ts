@@ -43,4 +43,8 @@ export const API_ENDPOINTS = {
   ESCALATION_POLICY_STEPS: (id: string) => `/api/proxy/escalation-policies/${id}/steps`,
   ESCALATION_POLICY_STEPS_BULK: (id: string) => `/api/proxy/escalation-policies/${id}/steps/bulk`,
   ESCALATION_POLICY_STEP: (id: string, stepId: string) => `/api/proxy/escalation-policies/${id}/steps/${stepId}`,
+
+  // Internal metrics
+  INTERNAL_FACILITIES_METRICS: `/api/proxy/internal/facilities/metrics`,
+  INTERNAL_AUDIT_LOGS: `/api/proxy/internal/audit-logs`,
 };

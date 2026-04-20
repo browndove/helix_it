@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
+import { useFacilityView } from '@/contexts/FacilityViewContext';
 
 type EscalationLevel = {
     level: number;
@@ -421,6 +422,9 @@ export default function RolesBuilderAssignment() {
     const [selectedTemplate, setSelectedTemplate] = useState<RoleTemplate>(roleTemplates[0]);
     const [templateDept, setTemplateDept] = useState('');
     const [templateCreating, setTemplateCreating] = useState(false);
+
+    const facilityView = useFacilityView();
+    const facilityId = facilityView?.facilityId;
     const [newRoleName, setNewRoleName] = useState('');
     const [newRoleDesc, setNewRoleDesc] = useState('');
     const [newRoleDept, setNewRoleDept] = useState('');
@@ -481,13 +485,20 @@ export default function RolesBuilderAssignment() {
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
     const fetchData = useCallback(async () => {
+        const facilityQuery = facilityId ? `?facility_id=${encodeURIComponent(facilityId)}` : '';
+        const staffQueryBase = '/api/proxy/staff?page_size=100&page_id=1';
+        const staffUrl = facilityId
+            ? `${staffQueryBase}&facility_id=${encodeURIComponent(facilityId)}`
+            : staffQueryBase;
+
         try {
             const [rolesRes, deptsRes, policiesRes, staffRes] = await Promise.all([
-                fetch('/api/proxy/roles'),
-                fetch('/api/proxy/departments'),
+                fetch(`/api/proxy/roles${facilityQuery}`),
+                fetch(`/api/proxy/departments${facilityQuery}`),
                 fetch('/api/proxy/escalation-policies'),
-                fetch('/api/proxy/staff?page_size=100&page_id=1'),
+                fetch(staffUrl),
             ]);
+
             // Build department ID → name map
             let deptMap = new Map<string, string>();
             if (deptsRes.ok) {
@@ -641,6 +652,7 @@ export default function RolesBuilderAssignment() {
                         description: tr.description,
                         department_id: deptIdMap.get(templateDept) || undefined,
                         priority: 'critical',
+                        facility_id: facilityId,
                     }),
                 });
                 if (res.ok) {
@@ -709,9 +721,21 @@ export default function RolesBuilderAssignment() {
                     department_id: deptIdMap.get(newRoleDept) || undefined,
                     priority: newRoleMandatory ? 'critical' : 'standard',
                     sign_in_allowed_user_ids: newRestricted ? newAllowedUserIds : undefined,
+                    ...(facilityId ? { facility_id: facilityId } : {}),
                 }),
             });
-            if (!res.ok) { showToast('Failed to add role'); return; }
+            if (!res.ok) {
+                let msg = 'Failed to add role';
+                try {
+                    const err = await res.json() as { message?: string; detail?: string; error?: string };
+                    msg = (typeof err.message === 'string' && err.message.trim())
+                        || (typeof err.detail === 'string' && err.detail.trim())
+                        || (typeof err.error === 'string' && err.error.trim())
+                        || msg;
+                } catch { /* use default */ }
+                showToast(msg);
+                return;
+            }
             const role = await res.json();
 
             // Create escalation policy + steps for critical/mandatory roles

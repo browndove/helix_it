@@ -5,6 +5,7 @@ import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
 import DatePicker from '@/components/DatePicker';
 import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
+import { useFacilityView } from '@/contexts/FacilityViewContext';
 
 type StaffMember = {
     id: string;
@@ -45,6 +46,11 @@ type BulkUploadSummary = {
     message: string;
 };
 
+function readHelixFacilityCookie(): string {
+    if (typeof document === 'undefined') return '';
+    const m = document.cookie.match(/(?:^|; )helix-facility=([^;]*)/);
+    return m ? decodeURIComponent(m[1].trim()) : '';
+}
 
 function looksLikeStaffRecord(value: unknown): boolean {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -260,7 +266,30 @@ export default function StaffDirectoryManagement() {
     const [processing, setProcessing] = useState(false);
     const [adding, setAdding] = useState(false);
     const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
+    const facilityView = useFacilityView();
+    const facilityFromContext = facilityView?.facilityId?.trim() || '';
+    const [cookieFacility, setCookieFacility] = useState('');
+    useEffect(() => {
+        setCookieFacility(readHelixFacilityCookie());
+    }, []);
+    const facilityForApi = (facilityFromContext || cookieFacility).trim();
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    const staffMemberApiUrl = useCallback(
+        (id: string) =>
+            facilityForApi
+                ? `/api/proxy/staff/${id}?facility_id=${encodeURIComponent(facilityForApi)}`
+                : `/api/proxy/staff/${id}`,
+        [facilityForApi],
+    );
+
+    const staffAssignRoleApiUrl = useCallback(
+        (id: string) =>
+            facilityForApi
+                ? `/api/proxy/staff/${id}/assign-role?facility_id=${encodeURIComponent(facilityForApi)}`
+                : `/api/proxy/staff/${id}/assign-role`,
+        [facilityForApi],
+    );
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
@@ -326,8 +355,10 @@ export default function StaffDirectoryManagement() {
 
     const fetchStaff = useCallback(async () => {
         setFetchError(false);
+        const base = '/api/proxy/staff?page_size=100&page_id=1';
+        const url = facilityForApi ? `${base}&facility_id=${encodeURIComponent(facilityForApi)}` : base;
         try {
-            const res = await fetch('/api/proxy/staff?page_size=100&page_id=1');
+            const res = await fetch(url);
             if (res.ok) {
                 const data = await res.json();
                 const parsed = parseStaffList(data);
@@ -339,11 +370,14 @@ export default function StaffDirectoryManagement() {
             setFetchError(true);
         }
         setLoading(false);
-    }, []);
+    }, [facilityForApi]);
 
     const fetchDepartments = useCallback(async () => {
         try {
-            const res = await fetch('/api/proxy/departments');
+            const url = facilityForApi
+                ? `/api/proxy/departments?facility_id=${encodeURIComponent(facilityForApi)}`
+                : '/api/proxy/departments';
+            const res = await fetch(url);
             if (!res.ok) return;
             const data = await res.json();
             const list = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
@@ -358,7 +392,7 @@ export default function StaffDirectoryManagement() {
         } catch {
             // best effort
         }
-    }, []);
+    }, [facilityForApi]);
 
     useEffect(() => { fetchStaff(); }, [fetchStaff]);
     useEffect(() => { fetchDepartments(); }, [fetchDepartments]);
@@ -595,7 +629,7 @@ export default function StaffDirectoryManagement() {
         if (selected?.id === id) setSelected(null);
         showToast(`${member?.first_name} ${member?.last_name} removed`);
         try {
-            await fetch(`/api/proxy/staff/${id}`, { method: 'DELETE' });
+            await fetch(staffMemberApiUrl(id), { method: 'DELETE' });
         } catch { /* optimistic — already removed locally */ }
     };
 
@@ -605,7 +639,7 @@ export default function StaffDirectoryManagement() {
         setStaff(prev => prev.map(s => s.id === id ? { ...s, status: newStatus } : s));
         showToast(newStatus === 'disabled' ? `${member?.first_name} ${member?.last_name} disabled` : `${member?.first_name} ${member?.last_name} enabled`);
         try {
-            await fetch(`/api/proxy/staff/${id}`, {
+            await fetch(staffMemberApiUrl(id), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status: newStatus }),
@@ -620,7 +654,7 @@ export default function StaffDirectoryManagement() {
         setSelected(prev => prev && prev.id === id ? { ...prev, patient_access: newVal } : prev);
         showToast(`Patient access ${newVal ? 'granted' : 'revoked'} for ${member?.first_name} ${member?.last_name}`);
         try {
-            await fetch(`/api/proxy/staff/${id}`, {
+            await fetch(staffMemberApiUrl(id), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ patient_access: newVal }),
@@ -640,7 +674,7 @@ export default function StaffDirectoryManagement() {
         setSelected(prev => prev && prev.id === id ? { ...prev, role: newRole } : prev);
         showToast(`${member?.first_name} ${member?.last_name} is now ${newRole === 'admin' ? 'an Admin' : 'Staff'}`);
         try {
-            const res = await fetch(`/api/proxy/staff/${id}/assign-role`, {
+            const res = await fetch(staffAssignRoleApiUrl(id), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ role: newRole }),
@@ -686,10 +720,13 @@ export default function StaffDirectoryManagement() {
                 role: selected.role,
                 patient_access: selected.patient_access,
             };
-            const res = await fetch(`/api/proxy/staff/${selected.id}`, {
+            const res = await fetch(staffMemberApiUrl(selected.id), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
+                body: JSON.stringify({
+                    ...payload,
+                    ...(facilityForApi ? { facility_id: facilityForApi } : {}),
+                }),
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({} as { message?: string; detail?: string; error?: string }));

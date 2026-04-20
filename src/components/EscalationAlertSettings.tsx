@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
+import { useFacilityView } from '@/contexts/FacilityViewContext';
 
 type EscalationLevel = {
     level: number;
@@ -184,6 +185,8 @@ function extractDepartmentNames(raw: unknown): string[] {
 
 export default function EscalationAlertSettings() {
     const DESC_LIMIT = 200;
+    const facilityView = useFacilityView();
+    const facilityId = facilityView?.facilityId;
     const [roles, setRoles] = useState<Role[]>([]);
     const [policies, setPolicies] = useState<Policy[]>([]);
     const [departments, setDepartments] = useState<string[]>([]);
@@ -385,7 +388,10 @@ export default function EscalationAlertSettings() {
                 });
             }
 
-            const policyRes = await fetch('/api/proxy/escalation-policies', {
+            const policyUrl = facilityId
+                ? `/api/proxy/escalation-policies?facility_id=${encodeURIComponent(facilityId)}`
+                : '/api/proxy/escalation-policies';
+            const policyRes = await fetch(policyUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -404,7 +410,10 @@ export default function EscalationAlertSettings() {
                 }))
                 .filter(s => s.target_role_id);
             if (steps.length > 0) {
-                const bulkRes = await fetch(`/api/proxy/escalation-policies/${policy.id}/steps/bulk`, {
+                const stepsUrl = facilityId
+                    ? `/api/proxy/escalation-policies/${policy.id}/steps/bulk?facility_id=${encodeURIComponent(facilityId)}`
+                    : `/api/proxy/escalation-policies/${policy.id}/steps/bulk`;
+                const bulkRes = await fetch(stepsUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ steps }),
@@ -450,7 +459,10 @@ export default function EscalationAlertSettings() {
         setEditSaving(true);
         try {
             // 1. Update policy initial timeout
-            const putRes = await fetch(`/api/proxy/escalation-policies/${editPolicyId}`, {
+            const putUrl = facilityId
+                ? `/api/proxy/escalation-policies/${editPolicyId}?facility_id=${encodeURIComponent(facilityId)}`
+                : `/api/proxy/escalation-policies/${editPolicyId}`;
+            const putRes = await fetch(putUrl, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -487,35 +499,34 @@ export default function EscalationAlertSettings() {
             if (existing?.steps) {
                 for (const step of existing.steps) {
                     if (step.id) {
-                        await fetch(`/api/proxy/escalation-policies/${editPolicyId}/steps/${step.id}`, { method: 'DELETE' });
+                        const delUrl = facilityId
+                            ? `/api/proxy/escalation-policies/${editPolicyId}/steps/${step.id}?facility_id=${encodeURIComponent(facilityId)}`
+                            : `/api/proxy/escalation-policies/${editPolicyId}/steps/${step.id}`;
+                        await fetch(delUrl, { method: 'DELETE' });
                     }
                 }
             }
 
+            // Enforce backend limit of 3 escalation steps per policy.
+            const stepsToSave = steps.slice(0, 3);
+            if (steps.length > 3) {
+                showToast('Only the first 3 escalation levels can be saved for this policy.');
+            }
+
             // 4. Bulk add new steps
-            if (steps.length > 0) {
-                const bulkRes = await fetch(`/api/proxy/escalation-policies/${editPolicyId}/steps/bulk`, {
+            if (stepsToSave.length > 0) {
+                const bulkUrl = facilityId
+                    ? `/api/proxy/escalation-policies/${editPolicyId}/steps/bulk?facility_id=${encodeURIComponent(facilityId)}`
+                    : `/api/proxy/escalation-policies/${editPolicyId}/steps/bulk`;
+                const bulkRes = await fetch(bulkUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ steps }),
+                    body: JSON.stringify({ steps: stepsToSave }),
                 });
                 if (!bulkRes.ok) {
                     console.error('[editPolicy] Bulk add failed:', await bulkRes.text().catch(() => ''));
                     showToast('Warning: steps may not have saved correctly');
                 }
-            }
-
-            // 5. Update associated role description only.
-            // Escalation name in this modal is display-only and should not rename the role.
-            if (editRole) {
-                await fetch(`/api/proxy/roles/${editRole.id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        name: editRole.name,
-                        description: editDesc.trim(),
-                    }),
-                });
             }
 
             showToast(`"${editName}" updated`);
@@ -529,7 +540,10 @@ export default function EscalationAlertSettings() {
     const handleDeleteChain = async (chain: ChainGroup) => {
         try {
             // Delete the escalation policy (cascades to all steps)
-            const res = await fetch(`/api/proxy/escalation-policies/${chain.policyId}`, { method: 'DELETE' });
+            const deleteUrl = facilityId
+                ? `/api/proxy/escalation-policies/${chain.policyId}?facility_id=${encodeURIComponent(facilityId)}`
+                : `/api/proxy/escalation-policies/${chain.policyId}`;
+            const res = await fetch(deleteUrl, { method: 'DELETE' });
             if (!res.ok) { showToast('Failed to delete policy'); setConfirmDelete(null); return; }
             if (selectedChainKey === chain.key) setSelectedChainKey(null);
             showToast(`"${chain.chainName}" deleted`);
