@@ -1,10 +1,10 @@
-/**
- * @deprecated Internal admin is password-only via /auth/internal/login.
- * Facility/hospital admin OTP may still use this upstream path — confirm with API.
- */
 import { NextRequest, NextResponse } from 'next/server';
+import { API_BASE_URL } from '@/lib/config';
+import { extractAccessToken, extractExpiryRaw } from '@/lib/internal-auth-response';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+const INTERNAL_VERIFY_OTP_PATH =
+    process.env.NEXT_PUBLIC_AUTH_INTERNAL_VERIFY_OTP_PATH || '/api/v1/auth/internal/verify-otp';
+const SESSION_COOKIE_NAME = 'helix-session';
 
 function extractFacilityIdFromPayload(payload: unknown): string {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '';
@@ -42,43 +42,57 @@ function extractFacilityIdFromPayload(payload: unknown): string {
 }
 
 export async function POST(req: NextRequest) {
+    const url = `${API_BASE_URL}${INTERNAL_VERIFY_OTP_PATH}`;
+    console.log('[proxy auth/internal/verify-otp] Forwarding to:', url);
+
     try {
         const body = await req.json();
-        const url = `${API_BASE_URL}/api/v1/auth/admin/verify-otp`;
-
-        console.log('Proxy admin verify-otp request to:', url);
 
         const res = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
+            signal: AbortSignal.timeout(15000),
         });
 
         const text = await res.text();
-        console.log('Backend response status:', res.status);
-        console.log('Backend response text:', text.substring(0, 500));
-
-        let data;
+        let data: unknown;
         try {
-            data = JSON.parse(text);
+            data = text ? JSON.parse(text) : {};
         } catch {
-            console.error('Failed to parse backend response as JSON');
+            console.error('[proxy auth/internal/verify-otp] Non-JSON response', res.status);
             return NextResponse.json(
                 { error: 'Backend returned invalid response', details: text.substring(0, 200) },
-                { status: 502 }
+                { status: 502 },
             );
         }
 
         const response = NextResponse.json(data, { status: res.status });
+
         if (res.ok) {
-            if (data.access_token) {
-                response.cookies.set('helix-session', data.access_token, {
+            const token = extractAccessToken(data);
+            if (token) {
+                const expiresAtRaw = extractExpiryRaw(data);
+                const cookieOptions: Parameters<typeof response.cookies.set>[2] = {
                     httpOnly: true,
-                    secure: process.env.NODE_ENV === 'production',
                     sameSite: 'lax',
                     path: '/',
-                    maxAge: 60 * 60 * 8,
-                });
+                };
+                if (process.env.NODE_ENV === 'production') {
+                    cookieOptions.secure = true;
+                }
+                if (expiresAtRaw) {
+                    const expires = new Date(expiresAtRaw);
+                    if (!Number.isNaN(expires.getTime())) {
+                        cookieOptions.expires = expires;
+                    }
+                } else {
+                    cookieOptions.maxAge = 60 * 60 * 8;
+                }
+                response.cookies.set(SESSION_COOKIE_NAME, token, cookieOptions);
+                response.headers.set('X-Internal-Auth', 'complete');
+            } else {
+                response.headers.set('X-Internal-Auth', 'incomplete');
             }
 
             const facilityId = extractFacilityIdFromPayload(data);
@@ -97,8 +111,11 @@ export async function POST(req: NextRequest) {
 
         return response;
     } catch (err) {
-        console.error('Proxy error:', err);
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        return NextResponse.json({ error: 'Proxy error', details: message }, { status: 500 });
+        const message = err instanceof Error ? err.message : String(err);
+        console.error('[proxy auth/internal/verify-otp]', message);
+        return NextResponse.json(
+            { error: 'Proxy error', details: message },
+            { status: 500 },
+        );
     }
 }

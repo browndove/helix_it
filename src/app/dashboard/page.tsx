@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { API_ENDPOINTS } from '@/lib/config';
+import { API_ENDPOINTS, getHelixAdminFacilityEntryUrl } from '@/lib/config';
 import { FacilityOsLightShell, type MetricsData, type AuditLogEntry } from '@/components/dashboard/FacilityOsLightShell';
 
 type Facility = {
@@ -14,7 +13,6 @@ type Facility = {
 };
 
 export default function InternalDashboardPage() {
-    const router = useRouter();
     const [facilities, setFacilities] = useState<Facility[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -162,12 +160,9 @@ export default function InternalDashboardPage() {
     };
 
     const handleOpenFacility = (facility: Facility) => {
-        try {
-            document.cookie = `helix-facility=${facility.id}; path=/; SameSite=Lax`;
-        } catch {
-            // non-fatal; navigation still proceeds
+        if (typeof window !== 'undefined') {
+            window.location.assign(getHelixAdminFacilityEntryUrl(facility.id));
         }
-        router.push(`/facility/${facility.id}`);
     };
 
     const fieldStyle: React.CSSProperties = {

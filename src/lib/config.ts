@@ -1,8 +1,29 @@
 export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
 
+/** Where “Enter facility” sends internal admins (production Helix admin sign-in). */
+export const HELIX_ADMIN_FACILITY_ENTRY_URL = (
+    process.env.NEXT_PUBLIC_HELIX_ADMIN_FACILITY_ENTRY_URL || 'https://admin.helixhealth.app/internal/login'
+).replace(/\/+$/, '');
+
+/** Full URL to open a facility in Helix admin (`facility_id` for post-login / deep-link handling). */
+export function getHelixAdminFacilityEntryUrl(facilityId: string): string {
+    try {
+        const u = new URL(HELIX_ADMIN_FACILITY_ENTRY_URL);
+        u.searchParams.set('facility_id', facilityId);
+        return u.toString();
+    } catch {
+        const sep = HELIX_ADMIN_FACILITY_ENTRY_URL.includes('?') ? '&' : '?';
+        return `${HELIX_ADMIN_FACILITY_ENTRY_URL}${sep}facility_id=${encodeURIComponent(facilityId)}`;
+    }
+}
+
 export const API_ENDPOINTS = {
   // Auth endpoints - use local proxy to avoid CORS
   LOGIN: `/api/proxy/auth/login`,
+  /** Internal platform admin — password then optional email OTP. */
+  INTERNAL_LOGIN: `/api/proxy/auth/internal/login`,
+  INTERNAL_VERIFY_OTP: `/api/proxy/auth/internal/verify-otp`,
+  /** @deprecated Facility admin OTP flow; internal admin does not use OTP. */
   ADMIN_LOGIN: `/api/proxy/auth/admin/login`,
   LOGOUT: `/api/proxy/auth/logout`,
   CHANGE_PASSWORD: `/api/proxy/auth/change-password`,
